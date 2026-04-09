@@ -1,6 +1,10 @@
 import QueryFeedback from '../models/QueryFeedback.js';
 import UserFeedback from '../models/UserFeedback.js';
 import User from '../models/User.js';
+import Ticket from '../models/Ticket.js';
+import TicketMessage from '../models/TicketMessage.js';
+import QuestionTheme from '../models/QuestionTheme.js';
+import aiService from '../services/aiService.js';
 
 // @desc    Submit feedback for an AI response (Query-level)
 // @route   POST /api/chat/feedback
@@ -137,5 +141,186 @@ const getUserFeedbacks = async (req, res, next) => {
     }
 };
 
-export { submitFeedback, submitGeneralFeedback, getQueryFeedbacks, getUserFeedbacks };
+// POST /api/chat/raise-ticket
+// Supports both chat-based tickets (with queryId/aiResponse) and independent tickets (with subject/category)
+const raiseTicket = async (req, res, next) => {
+    try {
+        const { queryId, responseId, userQuestion, aiResponse, description, subject, categoryId } = req.body;
+
+        // For chat-based tickets, userQuestion + aiResponse are required
+        // For independent tickets, subject + description are required
+        const isChatTicket = !!(userQuestion && aiResponse);
+        const isIndependentTicket = !!subject;
+
+        if (!isChatTicket && !isIndependentTicket) {
+            res.status(400);
+            throw new Error('Either (userQuestion + aiResponse) for chat tickets or (subject) for independent tickets is required');
+        }
+
+        // Classify: use userQuestion for chat tickets, or subject+description for independent
+        const textToClassify = isChatTicket ? userQuestion : `${subject} ${description || ''}`;
+
+        const allThemes = await QuestionTheme.find({ isPredefined: true })
+            .select('name description exampleQueries')
+            .lean();
+
+        let themeDoc = null;
+
+        // If categoryId provided (independent ticket), use it directly
+        if (categoryId) {
+            themeDoc = await QuestionTheme.findById(categoryId).lean();
+        }
+
+        // Otherwise, classify via AI
+        if (!themeDoc) {
+            const classifyResult = await aiService.classifyQuestionTheme(textToClassify, allThemes);
+            if (classifyResult?.theme) {
+                themeDoc = await QuestionTheme.findOne({ name: classifyResult.theme, isPredefined: true }).lean();
+            }
+        }
+        // Fallback to 'Other / Unclassified'
+        if (!themeDoc) {
+            themeDoc = await QuestionTheme.findOne({ name: 'Other / Unclassified', isPredefined: true }).lean();
+        }
+
+        const themeName = themeDoc?.name || 'Other / Unclassified';
+
+        // Find HROps users assigned to this theme
+        const assignedToIds = themeDoc
+            ? (await User.find({ roles: 'hrOps', assignedThemes: themeDoc._id }).select('_id').lean()).map(u => u._id)
+            : [];
+
+        // Create ticket
+        const populatedUser = await User.findById(req.user._id).populate('entity', 'name').lean();
+
+        const ticket = await Ticket.create({
+            userId:            req.user._id,
+            userName:          req.user.name,
+            userEmail:         req.user.email,
+            userEntity:        populatedUser?.entity?.name || req.user.entity_code || '',
+            subject:           subject || (isChatTicket ? userQuestion.substring(0, 100) : ''),
+            queryMessageId:    queryId || null,
+            responseMessageId: responseId || null,
+            userQuestion:      userQuestion || '',
+            aiResponse:        aiResponse || '',
+            description:       description || '',
+            theme:             themeDoc?._id || null,
+            themeName,
+            assignedTo:        assignedToIds,
+            status:            'open',
+        });
+
+        res.status(201).json({ statusCode: 201, success: true, data: ticket });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// GET /api/chat/my-tickets
+const getMyTickets = async (req, res, next) => {
+    try {
+        const { status, page = 1, limit = 20 } = req.query;
+        const filter = { userId: req.user._id };
+        if (status) filter.status = status;
+
+        const tickets = await Ticket.find(filter)
+            .populate('theme', 'daysToClosure')
+            .sort({ createdAt: -1 })
+            .skip((page - 1) * limit)
+            .limit(Number(limit))
+            .lean();
+
+        const total = await Ticket.countDocuments(filter);
+
+        // Enrich with SLA data
+        const now = new Date();
+        const enriched = tickets.map(t => {
+            const dtc = t.theme?.daysToClosure || null;
+            let dueDate = null;
+            let daysRemaining = null;
+            let isOverdue = false;
+            if (dtc && t.status !== 'hold') {
+                dueDate = new Date(new Date(t.createdAt).getTime() + dtc * 86400000);
+                daysRemaining = Math.ceil((dueDate - now) / 86400000);
+                isOverdue = daysRemaining < 0 && t.status !== 'resolved';
+            }
+            return { ...t, daysToClosure: dtc, dueDate, daysRemaining, isOverdue };
+        });
+
+        res.status(200).json({
+            statusCode: 200,
+            success: true,
+            data: enriched,
+            total,
+            page: Number(page),
+            pages: Math.ceil(total / limit),
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// GET /api/chat/tickets/:id/messages  (employee views chat for their own ticket)
+const getEmployeeTicketMessages = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const ticket = await Ticket.findOne({ _id: id, userId: req.user._id }).lean();
+        if (!ticket) { res.status(404); throw new Error('Ticket not found'); }
+
+        const messages = await TicketMessage.find({ ticketId: id }).sort({ createdAt: 1 }).lean();
+
+        // Mark hrOps messages as read
+        await TicketMessage.updateMany(
+            { ticketId: id, senderRole: 'hrOps', readBy: { $ne: req.user._id } },
+            { $addToSet: { readBy: req.user._id } }
+        );
+
+        res.status(200).json({ statusCode: 200, success: true, data: messages });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// POST /api/chat/tickets/:id/messages  (employee sends a message)
+const sendEmployeeTicketMessage = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { message } = req.body;
+        const file = req.file;
+
+        if (!message?.trim() && !file) { res.status(400); throw new Error('Message or attachment is required'); }
+
+        const ticket = await Ticket.findOne({ _id: id, userId: req.user._id }).lean();
+        if (!ticket) { res.status(404); throw new Error('Ticket not found'); }
+        if (ticket.status === 'resolved') { res.status(400); throw new Error('Cannot send message on a resolved ticket'); }
+
+        let attachmentUrl = null;
+        let attachmentType = null;
+        let attachmentName = null;
+
+        if (file) {
+            attachmentUrl = `/api/chat/files/${file.filename}`;
+            attachmentName = file.originalname;
+            attachmentType = file.mimetype.includes('pdf') ? 'pdf' : 'image';
+        }
+
+        const msg = await TicketMessage.create({
+            ticketId: id,
+            senderId: req.user._id,
+            senderName: req.user.name,
+            senderRole: 'employee',
+            message: message ? message.trim() : '',
+            attachmentUrl,
+            attachmentType,
+            attachmentName,
+            readBy: [req.user._id],
+        });
+
+        res.status(201).json({ statusCode: 201, success: true, data: msg });
+    } catch (error) {
+        next(error);
+    }
+};
+
+export { submitFeedback, submitGeneralFeedback, getQueryFeedbacks, getUserFeedbacks, raiseTicket, getMyTickets, getEmployeeTicketMessages, sendEmployeeTicketMessage };
 

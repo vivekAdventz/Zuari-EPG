@@ -3,13 +3,14 @@ import toast from 'react-hot-toast';
 import {
     getAdminUsers, createUser, deleteUser, updateUser,
     previewEmployeesCsv, bulkCreateEmployees, downloadEmployeeTemplate,
-    getConfigEntities, getImpactLevels, getEmployeeCategories,
+    getConfigEntities, getImpactLevels, getEmployeeCategories, getQuestionThemes,
 } from '../../api';
 import ConfirmationModal from '../../components/ConfirmationModal';
 
 const AVAILABLE_ROLES = [
     { value: 'employee', label: 'Employee' },
     { value: 'admin', label: 'Admin' },
+    { value: 'hrOps', label: 'HROps' },
 ];
 
 // ── Reusable styled select wrapper ──────────────────────────────────────────
@@ -42,6 +43,7 @@ const AdminEmployees = () => {
     const [configEntities, setConfigEntities] = useState([]);
     const [allImpactLevels, setAllImpactLevels] = useState([]);
     const [empCategories, setEmpCategories] = useState([]);
+    const [questionThemes, setQuestionThemes] = useState([]);
 
     const [loading, setLoading] = useState(true);
     const [creationMode, setCreationMode] = useState(null); // 'manual' | 'bulk' | null
@@ -59,6 +61,7 @@ const AdminEmployees = () => {
         status: 'active',
         gender: 'Male',
         roles: ['employee'],
+        assignedThemes: [],   // QuestionTheme _ids (hrOps only)
     };
 
     const [formData, setFormData] = useState(emptyForm);
@@ -82,16 +85,18 @@ const AdminEmployees = () => {
     useEffect(() => {
         const fetchAll = async () => {
             try {
-                const [usersData, entities, impacts, categories] = await Promise.all([
+                const [usersData, entities, impacts, categories, themes] = await Promise.all([
                     getAdminUsers(),
                     getConfigEntities(),
                     getImpactLevels(),
                     getEmployeeCategories(),
+                    getQuestionThemes(),
                 ]);
                 setUsers(usersData);
                 setConfigEntities(entities);
                 setAllImpactLevels(impacts);
                 setEmpCategories(categories);
+                setQuestionThemes(themes);
             } catch (error) {
                 toast.error(error.message || 'Failed to load data');
             } finally {
@@ -131,9 +136,29 @@ const AdminEmployees = () => {
             const currentRoles = prev.roles || ['employee'];
             if (currentRoles.includes(roleValue)) {
                 if (currentRoles.length === 1) { toast.error('User must have at least one role'); return prev; }
-                return { ...prev, roles: currentRoles.filter(r => r !== roleValue) };
+                const newRoles = currentRoles.filter(r => r !== roleValue);
+                return { ...prev, roles: newRoles };
+            }
+            // HROps <-> Admin mutual exclusion
+            if (roleValue === 'hrOps' && currentRoles.includes('admin')) {
+                toast.error('HROps users cannot have the Admin role');
+                return prev;
+            }
+            if (roleValue === 'admin' && currentRoles.includes('hrOps')) {
+                toast.error('Admin users cannot have the HROps role');
+                return prev;
             }
             return { ...prev, roles: [...currentRoles, roleValue] };
+        });
+    };
+
+    const handleThemeToggle = (themeId) => {
+        setFormData(prev => {
+            const current = prev.assignedThemes || [];
+            if (current.includes(themeId)) {
+                return { ...prev, assignedThemes: current.filter(id => id !== themeId) };
+            }
+            return { ...prev, assignedThemes: [...current, themeId] };
         });
     };
 
@@ -156,6 +181,7 @@ const AdminEmployees = () => {
                 empCategory: formData.empCategory,
                 status: formData.status,
                 gender: formData.gender,
+                assignedThemes: formData.roles.includes('hrOps') ? formData.assignedThemes : [],
             };
 
             if (isEditing) {
@@ -208,6 +234,7 @@ const AdminEmployees = () => {
             status: userItem.status || 'active',
             gender: userItem.gender || 'Male',
             roles: userItem.roles || ['employee'],
+            assignedThemes: (userItem.assignedThemes || []).map(t => t._id || t),
         });
         setEditId(userItem._id);
         setIsEditing(true);
@@ -430,6 +457,7 @@ const AdminEmployees = () => {
                                                 </label>
                                             ))}
                                         </div>
+                                        <p className="text-[11px] text-gray-400 dark:text-slate-500 mt-1.5 px-1">HROps and Admin roles are mutually exclusive. Assign categories to HROps users via <span className="font-semibold">HROps Management</span>.</p>
                                     </div>
 
                                     {/* Submit / Cancel */}

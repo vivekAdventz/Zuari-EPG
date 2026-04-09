@@ -1,6 +1,82 @@
 import genAI from '../config/gemini.js';
 import config from '../config/env.js';
 import { searchPolicy } from './search.js';
+import ApiUsage from '../models/ApiUsage.js';
+
+const MODEL_PRICING = {
+    'gemini-1.5-flash': { prompt: 0.075, completion: 0.30 },
+    'gemini-2.5-flash': { prompt: 0.075, completion: 0.30 },
+    'gemini-1.5-pro': { prompt: 1.25, completion: 5.00 },
+    'gemini-2.5-pro': { prompt: 1.25, completion: 5.00 },
+    'gemini-pro': { prompt: 0.50, completion: 1.50 }
+};
+
+const getModelPricing = (modelName) => {
+    // Exact match
+    if (MODEL_PRICING[modelName]) return MODEL_PRICING[modelName];
+    // Partial Match (dynamic fallback)
+    if (modelName.includes('pro')) return MODEL_PRICING['gemini-1.5-pro'];
+    return MODEL_PRICING['gemini-1.5-flash'];
+};
+
+const logApiUsage = async (response, operation, modelName = "gemini-2.5-flash", userId = null) => {
+    try {
+        if (!response || !response.usageMetadata) return;
+        
+        let promptTokens = response.usageMetadata.promptTokenCount || 0;
+        let completionTokens = response.usageMetadata.candidatesTokenCount || 0;
+        let totalTokens = response.usageMetadata.totalTokenCount || 0;
+        
+        const rates = getModelPricing(modelName);
+        const cost = ((promptTokens / 1000000) * rates.prompt) + ((completionTokens / 1000000) * rates.completion);
+        
+        await ApiUsage.create({
+            model: modelName,
+            promptTokens,
+            completionTokens,
+            totalTokens,
+            cost,
+            operation,
+            userId
+        });
+    } catch(err) {
+        console.error("Failed to log API usage:", err);
+    }
+};
+
+const FALLBACK_MODELS = {
+    'gemini-2.5-pro': 'gemini-2.5-flash',
+    'gemini-2.5-flash': 'gemini-2.5-flash',
+};
+
+const isHighDemandError = (err) => {
+    const msg = (err?.message || err?.statusText || err?.toString() || '').toLowerCase();
+    return msg.includes('high demand') || msg.includes('rate limit') || msg.includes('resource exhausted')
+        || msg.includes('overloaded') || msg.includes('503') || msg.includes('429');
+};
+
+/**
+ * Wrapper around genAI.models.generateContent that catches high-demand /
+ * rate-limit errors and retries with a fallback model.
+ * Returns { response, modelUsed }.
+ */
+const callGeminiWithFallback = async (options) => {
+    const primaryModel = options.model;
+    try {
+        const response = await genAI.models.generateContent(options);
+        return { response, modelUsed: primaryModel };
+    } catch (err) {
+        if (isHighDemandError(err)) {
+            const fallbackModel = FALLBACK_MODELS[primaryModel] || 'gemini-2.5-flash';
+            console.warn(`Model ${primaryModel} unavailable (high demand), falling back to ${fallbackModel}`);
+            // Brief backoff before retry
+            await new Promise(r => setTimeout(r, 1500));
+            const response = await genAI.models.generateContent({ ...options, model: fallbackModel });
+            return { response, modelUsed: fallbackModel };
+        }
+        throw err;
+    }
+};
 
 const SYSTEM_PROMPT_TEMPLATE = `
 You are a helpful HR Policy Assistant for employees of the organization.
@@ -176,8 +252,8 @@ const generateAIResponse = async (messages, user, selectedPolicy = null, availab
             history.push(lastMsg);
         }
 
-        const response = await genAI.models.generateContent({
-            model: "gemini-2.5-flash",
+        const { response, modelUsed } = await callGeminiWithFallback({
+            model: "gemini-2.5-pro",
             contents: history, // Pass the full conversation history
             config: {
                 systemInstruction: systemContent, // System prompt goes here
@@ -194,6 +270,8 @@ const generateAIResponse = async (messages, user, selectedPolicy = null, availab
         } else if (response.response && typeof response.response.text === 'function') {
             text = response.response.text();
         }
+
+        await logApiUsage(response, 'chat', modelUsed, user?._id);
 
         return {
             content: text,
@@ -234,7 +312,7 @@ Example format:
 ]
         `;
 
-        const response = await genAI.models.generateContent({
+        const { response, modelUsed } = await callGeminiWithFallback({
             model: "gemini-2.5-flash",
             contents: prompt,
             config: {
@@ -242,6 +320,8 @@ Example format:
                 maxOutputTokens: 1024,
             }
         });
+
+        await logApiUsage(response, 'faq_generation', modelUsed);
 
         let text = response.text || (typeof response.text === 'function' ? response.text() : "");
         text = text.replace(/```json/g, "").replace(/```/g, "").trim();
@@ -264,7 +344,7 @@ const classifyQuestionTheme = async (question, themes = []) => {
 
         const themeList = themes.map((t, i) => `${i + 1}. Theme: "${t.name}"\n   Definition: ${t.description || 'N/A'}\n   Examples: ${t.exampleQueries || 'N/A'}`).join('\n\n');
 
-        const response = await genAI.models.generateContent({
+        const { response, modelUsed } = await callGeminiWithFallback({
             model: 'gemini-2.5-flash',
             contents: [{ role: 'user', parts: [{ text: `Question: "${question}"` }] }],
             config: {
@@ -281,6 +361,8 @@ RULES:
                 maxOutputTokens: 1024
             }
         });
+
+        await logApiUsage(response, 'theme_classification', modelUsed);
 
 
         const text = (typeof response.response?.text === 'function' ? response.response.text() :
@@ -333,7 +415,7 @@ export const clusterDemandGaps = async (feedbacks) => {
         Use the [ID:x] numbers provided above for the "indices" array.
         `;
 
-        const response = await genAI.models.generateContent({
+        const { response, modelUsed } = await callGeminiWithFallback({
             model: "gemini-2.5-flash",
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
             config: {
@@ -342,6 +424,8 @@ export const clusterDemandGaps = async (feedbacks) => {
                 temperature: 0.2
             }
         });
+
+        await logApiUsage(response, 'demand_gap_clustering', modelUsed);
 
         const responseText = (typeof response.response?.text === 'function' ? response.response.text() :
             typeof response.text === 'function' ? response.text() :
@@ -391,7 +475,7 @@ export const generateThemesFromPolicies = async (policyContext) => {
         ["Health Insurance Benefits", "Remote Work Policy", "Expense Reimbursement"]
         `;
 
-        const response = await genAI.models.generateContent({
+        const { response, modelUsed } = await callGeminiWithFallback({
             model: "gemini-2.5-flash",
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
             config: {
@@ -400,6 +484,8 @@ export const generateThemesFromPolicies = async (policyContext) => {
                 maxOutputTokens: 2048
             }
         });
+
+        await logApiUsage(response, 'policy_theme_generation', modelUsed);
 
         let responseText = "";
         if (typeof response.text === 'function') {
@@ -429,10 +515,193 @@ export const generateThemesFromPolicies = async (policyContext) => {
     }
 }
 
+/**
+ * Evaluate whether raising a ticket is necessary given the conversation context.
+ * Uses Gemini 2.5 Flash for fast evaluation.
+ */
+const evaluateTicketNecessity = async (conversationMessages = [], userQuestion, aiResponse, user = null, selectedPolicy = null) => {
+    try {
+        if (!config.GEMINI_API_KEY) {
+            return { necessary: true, reason: 'Evaluation unavailable.' };
+        }
+
+        const contextSummary = conversationMessages
+            .slice(-10)
+            .map(m => `${m.role === 'user' ? 'Employee' : 'AI'}: ${(m.content || '').replace(/<[^>]*>/g, '').substring(0, 300)}`)
+            .join('\n');
+
+        // Search vector DB for relevant policy context
+        let policyContext = '';
+        if (user && userQuestion) {
+            try {
+                const searchResults = await searchPolicy(userQuestion, user, selectedPolicy, 20);
+                if (searchResults.length > 0) {
+                    policyContext = searchResults.map(r =>
+                        `--- POLICY: ${r.policy} ---\n${r.content}\n--- END ---`
+                    ).join('\n');
+                }
+            } catch (searchErr) {
+                console.error('Policy search for ticket evaluation failed:', searchErr);
+            }
+        }
+
+        const userContent = [
+            `RECENT CONVERSATION:\n${contextSummary}`,
+            `LATEST EMPLOYEE QUESTION:\n${userQuestion}`,
+            `AI RESPONSE PROVIDED:\n${(aiResponse || '').replace(/<[^>]*>/g, '').substring(0, 1500)}`,
+            policyContext ? `RELEVANT POLICY EXCERPTS:\n${policyContext}` : ''
+        ].filter(Boolean).join('\n\n');
+
+        const { response, modelUsed } = await callGeminiWithFallback({
+            model: 'gemini-2.5-flash',
+            contents: [{ role: 'user', parts: [{ text: userContent }] }],
+            config: {
+                systemInstruction: `You are a Quality Assurance evaluator for an HR support system. An employee wants to raise a support ticket after receiving an AI response.
+
+Your job is to evaluate whether the AI response already adequately addresses the employee's question.
+
+Evaluate based on:
+1. Did the AI response directly answer the question?
+2. Is the response accurate, complete and actionable?
+3. Does the employee's query require human intervention (e.g. approvals, personal records, disputes, escalations)?
+4. Is the query about something the AI cannot handle (e.g. updating records, processing requests)?
+5. Do the RELEVANT POLICY EXCERPTS (if provided) contain information that adequately answers the employee's question but the AI response missed or got wrong?
+
+Return ONLY valid JSON:
+{
+  "necessary": true/false,
+  "confidence": "high"/"medium"/"low",
+  "reason": "Brief 1-2 sentence explanation of your assessment",
+  "suggestion": "If not necessary, a brief suggestion for the employee on what to try instead"
+}
+
+IMPORTANT: If the query genuinely requires human HR intervention, ALWAYS mark necessary as true. When in doubt, lean toward allowing the ticket.`,
+                temperature: 0.2,
+                maxOutputTokens: 512,
+                thinkingConfig: { thinkingBudget: 0 }
+            }
+        });
+
+        await logApiUsage(response, 'ticket_evaluation', modelUsed);
+
+        let text = '';
+        try {
+            text = (typeof response.text === 'function' ? response.text() : response.text) || '';
+        } catch (_) {
+            if (response.candidates?.[0]?.content?.parts) {
+                text = response.candidates[0].content.parts
+                    .filter(p => p.text)
+                    .map(p => p.text)
+                    .join('');
+            }
+        }
+        if (!text) return { necessary: true, reason: 'Evaluation could not be completed.' };
+
+        const first = text.indexOf('{');
+        const last = text.lastIndexOf('}');
+        if (first === -1 || last === -1) return { necessary: true, reason: 'Evaluation could not be completed.' };
+
+        return JSON.parse(text.substring(first, last + 1));
+    } catch (err) {
+        console.error('evaluateTicketNecessity error:', err);
+        return { necessary: true, reason: 'Evaluation unavailable. You may proceed.' };
+    }
+};
+
+/**
+ * Evaluate whether an independent ticket (no chat context) truly needs human HR intervention.
+ * Searches ALL policies for the user's entity in the vector DB and lets the LLM decide.
+ */
+const evaluateIndependentTicket = async (subject, description, user) => {
+    try {
+        if (!config.GEMINI_API_KEY) {
+            return { necessary: true, reason: 'Evaluation unavailable.' };
+        }
+
+        const query = `${subject} ${description}`.trim();
+
+        // Search vector DB across all policies for the user's entity
+        let policyContext = '';
+        if (user && query) {
+            try {
+                const searchResults = await searchPolicy(query, user, null, 20);
+                if (searchResults.length > 0) {
+                    policyContext = searchResults.map(r =>
+                        `--- POLICY: ${r.policy} ---\n${r.content}\n--- END ---`
+                    ).join('\n');
+                }
+            } catch (searchErr) {
+                console.error('Policy search for independent ticket evaluation failed:', searchErr);
+            }
+        }
+
+        const userContent = [
+            `EMPLOYEE TICKET SUBJECT:\n${subject}`,
+            `EMPLOYEE TICKET DESCRIPTION:\n${description}`,
+            policyContext ? `RELEVANT POLICY EXCERPTS:\n${policyContext}` : ''
+        ].filter(Boolean).join('\n\n');
+
+        const { response, modelUsed } = await callGeminiWithFallback({
+            model: 'gemini-2.5-flash',
+            contents: [{ role: 'user', parts: [{ text: userContent }] }],
+            config: {
+                systemInstruction: `You are a Quality Assurance evaluator for an HR support system. An employee wants to raise a support ticket directly (without chatting with AI first).
+
+Your job is to evaluate whether the employee's question can already be answered by the company's HR policies, or if it genuinely needs human HR intervention.
+
+Evaluate based on:
+1. Do the RELEVANT POLICY EXCERPTS (if provided) contain clear, direct answers to the employee's question?
+2. Is this something that requires human intervention (e.g. approvals, personal records, disputes, escalations, processing requests)?
+3. Is the query specific enough that automated policy information would be sufficient?
+4. Could the employee find the answer by chatting with the AI assistant instead?
+
+Return ONLY valid JSON:
+{
+  "necessary": true/false,
+  "confidence": "high"/"medium"/"low",
+  "reason": "Brief 1-2 sentence explanation of your assessment",
+  "suggestion": "If not necessary, a brief suggestion for the employee on what to try instead (e.g. which policy to check in AskHR chat)"
+}
+
+IMPORTANT: If the query genuinely requires human HR intervention, ALWAYS mark necessary as true. When in doubt, lean toward allowing the ticket.`,
+                temperature: 0.2,
+                maxOutputTokens: 512,
+                thinkingConfig: { thinkingBudget: 0 }
+            }
+        });
+
+        await logApiUsage(response, 'independent_ticket_evaluation', modelUsed);
+
+        let text = '';
+        try {
+            text = (typeof response.text === 'function' ? response.text() : response.text) || '';
+        } catch (_) {
+            if (response.candidates?.[0]?.content?.parts) {
+                text = response.candidates[0].content.parts
+                    .filter(p => p.text)
+                    .map(p => p.text)
+                    .join('');
+            }
+        }
+        if (!text) return { necessary: true, reason: 'Evaluation could not be completed.' };
+
+        const first = text.indexOf('{');
+        const last = text.lastIndexOf('}');
+        if (first === -1 || last === -1) return { necessary: true, reason: 'Evaluation could not be completed.' };
+
+        return JSON.parse(text.substring(first, last + 1));
+    } catch (err) {
+        console.error('evaluateIndependentTicket error:', err);
+        return { necessary: true, reason: 'Evaluation unavailable. You may proceed.' };
+    }
+};
+
 export default {
     generateAIResponse,
     generateDynamicFAQs,
     classifyQuestionTheme,
     clusterDemandGaps,
-    generateThemesFromPolicies
+    generateThemesFromPolicies,
+    evaluateTicketNecessity,
+    evaluateIndependentTicket
 };

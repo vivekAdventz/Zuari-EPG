@@ -4,7 +4,7 @@ import emailService from './emailService.js';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 
-const registerUser = async (name, email, password, roles, entity, level, status, entity_code, empCategory, skipIfExists = false, gender = 'Male') => {
+const registerUser = async (name, email, password, roles, entity, level, status, entity_code, empCategory, assignedThemes = [], skipIfExists = false, gender = 'Male') => {
     const userExists = await User.findOne({ email });
 
     if (userExists) {
@@ -27,7 +27,8 @@ const registerUser = async (name, email, password, roles, entity, level, status,
 
     const isSuperAdmin = normalizedRoles.includes('superAdmin');
     const isAdmin = normalizedRoles.includes('admin');
-    const isPrivilegedUser = isSuperAdmin || isAdmin;
+    const isHrOps = normalizedRoles.includes('hrOps');
+    const isPrivilegedUser = isSuperAdmin || isAdmin || isHrOps;
 
     // Either take the provided password from frontend (if modifying later) or generate one for privileged users
     const userPassword = password || (isPrivilegedUser ? crypto.randomBytes(8).toString('hex') : undefined);
@@ -48,6 +49,7 @@ const registerUser = async (name, email, password, roles, entity, level, status,
         status: cleaningStatus,
         entity_code: entity_code || '',
         empCategory: empCategory || null,
+        assignedThemes: assignedThemes || [],
         gender: gender,
         is_account_activated: true // SSO handles activation seamlessly
     });

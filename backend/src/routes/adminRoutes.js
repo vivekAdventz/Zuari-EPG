@@ -22,7 +22,12 @@ import {
     previewEmployeesCsv,
     bulkCreateEmployees,
     getArchivedPolicies,
-    generatePolicyFaqs
+    generatePolicyFaqs,
+    getHrOpsAssignments,
+    assignHrOps,
+    unassignHrOps,
+    toggleHrOpsUserStatus,
+    updateThemeClosure,
 } from '../controllers/adminController.js';
 
 import { handlePlaygroundChat, handlePlaygroundReset } from '../controllers/playground/playgroundController.js';
@@ -31,6 +36,7 @@ import {
     getImpactLevels, createImpactLevel, updateImpactLevel, deleteImpactLevel,
     getEmployeeCategories, createEmployeeCategory, updateEmployeeCategory, deleteEmployeeCategory,
     getPolicyCategories, createPolicyCategory, updatePolicyCategory, deletePolicyCategory,
+    getQuestionThemes,
 } from '../controllers/configController.js';
 import { getQueryFeedbacks, getUserFeedbacks } from '../controllers/feedbackController.js';
 import { protect } from '../middleware/authMiddleware.js';
@@ -169,6 +175,16 @@ router.route('/config/policy-categories')
 router.route('/config/policy-categories/:id')
     .put(protect, admin, updatePolicyCategory)
     .delete(protect, admin, deletePolicyCategory);
+
+// Question Themes
+router.get('/config/question-themes', protect, admin, getQuestionThemes);
+
+// HROps Management
+router.get('/hrops', protect, admin, getHrOpsAssignments);
+router.post('/hrops/assign', protect, admin, assignHrOps);
+router.delete('/hrops/unassign', protect, admin, unassignHrOps);
+router.patch('/hrops/status', protect, admin, toggleHrOpsUserStatus);
+router.patch('/hrops/closure', protect, admin, updateThemeClosure);
 
 // Feedback
 router.get('/feedbacks/queries', protect, admin, getQueryFeedbacks);
