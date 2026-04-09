@@ -163,14 +163,14 @@ import authService from '../services/authService.js';
 
 const registerUser = async (req, res, next) => {
     try {
-        const { name, email, password, roles, entity, level, status, entity_code, empCategory } = req.body;
+        const { name, email, password, roles, entity, level, status, entity_code, empCategory, assignedThemes } = req.body;
 
         if (!name || !email) {
             res.status(400);
             throw new Error('Please provide name and email');
         }
 
-        const userData = await authService.registerUser(name, email, password, roles, entity, level, status, entity_code, empCategory);
+        const userData = await authService.registerUser(name, email, password, roles, entity, level, status, entity_code, empCategory, assignedThemes || []);
 
         await createLog(userData._id, userData.name, userData.roles?.join(', ') || 'employee', userData.entity, 'User Registered');
 

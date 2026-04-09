@@ -3,6 +3,7 @@ import cors from 'cors';
 import authRoutes from './routes/authRoutes.js';
 import chatRoutes from './routes/chatRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
+import hropsRoutes from './routes/hropsRoutes.js';
 import { notFound, errorHandler } from './middleware/errorMiddleware.js';
 import config from './config/env.js';
 import path from 'path';
@@ -19,7 +20,7 @@ const app = express();
 
 app.use(cors(
   {
-    origin: [config.ORIGIN, config.ORIGIN2, config.ORIGIN3],
+    origin: [config.ORIGIN, config.ORIGIN2, config.ORIGIN3,config.ORIGIN4],
     credentials: true
   }
 ));
@@ -30,6 +31,7 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/super-admin', superAdminRoutes);
 app.use('/api/admin/insights', insightsRoutes);
+app.use('/api/hrops', hropsRoutes);
 
 
 app.use('/api/vDB-visualize', vectorDbRoutes);

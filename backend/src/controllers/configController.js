@@ -2,6 +2,7 @@ import Entity from '../models/Entity.js';
 import ImpactLevel from '../models/ImpactLevel.js';
 import EmployeeCategory from '../models/EmployeeCategory.js';
 import PolicyCategory from '../models/PolicyCategory.js';
+import QuestionTheme from '../models/QuestionTheme.js';
 
 // ─── Helper ─────────────────────────────────────────────────────────────────
 const adminName = (req) => req.user?.name || 'Admin';
@@ -274,6 +275,25 @@ const deletePolicyCategory = async (req, res, next) => {
     }
 };
 
+// ════════════════════════════════════════════════════════════════════════════
+//  QUESTION THEMES (predefined, read-only for admins)
+// ════════════════════════════════════════════════════════════════════════════
+
+// @desc    Get all predefined question themes
+// @route   GET /api/admin/config/question-themes
+// @access  Private/Admin
+const getQuestionThemes = async (req, res, next) => {
+    try {
+        const themes = await QuestionTheme.find({ isPredefined: true })
+            .select('_id name description')
+            .sort({ name: 1 })
+            .lean();
+        res.json({ success: true, data: themes });
+    } catch (error) {
+        next(error);
+    }
+};
+
 export {
     // Entity
     getConfigEntities,
@@ -295,4 +315,6 @@ export {
     createPolicyCategory,
     updatePolicyCategory,
     deletePolicyCategory,
+    // Question Themes
+    getQuestionThemes,
 };

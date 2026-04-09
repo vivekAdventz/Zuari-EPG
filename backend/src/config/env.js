@@ -18,6 +18,7 @@ const config = {
     ORIGIN: process.env.ORIGIN || 'http://localhost:5173',
     ORIGIN2: process.env.ORIGIN2 || 'http://localhost:5174',
     ORIGIN3: process.env.ORIGIN3 || 'http://localhost:5175',
+    ORIGIN4: process.env.ORIGIN4 || 'http://localhost:5176',
     API_URL: process.env.API_URL,
     SMTP_FROM: process.env.SMTP_FROM,
     SMTP_PASSWORD: process.env.SMTP_PASSWORD,

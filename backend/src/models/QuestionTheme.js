@@ -24,6 +24,11 @@ const questionThemeSchema = new mongoose.Schema(
         count: {
             type: Number,
             default: 0
+        },
+        // SLA: number of days allowed to close tickets in this category
+        daysToClosure: {
+            type: Number,
+            default: null
         }
     },
     { timestamps: true }

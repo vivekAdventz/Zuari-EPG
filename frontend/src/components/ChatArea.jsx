@@ -2,40 +2,88 @@ import React, { useRef, useEffect, useState } from 'react';
 import DOMPurify from 'dompurify';
 import manImg from '../assets/man.png';
 import womanImg from '../assets/woman.png';
-import { submitFeedback } from '../api';
+import { submitFeedback, raiseTicket as raiseTicketApi, evaluateTicket as evaluateTicketApi } from '../api';
 
-const FeedbackModal = ({ onClose, onSubmit }) => {
+const RaiseTicketModal = ({ question, answer, onClose, onRaise }) => {
+    const [raising, setRaising] = useState(false);
+    const [error, setError] = useState('');
     const [desc, setDesc] = useState('');
-    const [submitting, setSubmitting] = useState(false);
 
-    const handleSubmit = async () => {
-        setSubmitting(true);
-        await onSubmit(desc);
-        setSubmitting(false);
+    const handleRaise = async () => {
+        if (!desc.trim()) {
+            setError('Description is required. Please explain what you need help with.');
+            return;
+        }
+        setRaising(true);
+        setError('');
+        try {
+            await onRaise(desc);
+        } catch (e) {
+            setError(e.message || 'Failed to raise ticket. Please try again.');
+            setRaising(false);
+        }
     };
 
     return (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-gray-100 dark:border-slate-700 w-full max-w-md mx-4 p-6 animate-up">
-                <div className="flex items-center gap-3 mb-4">
-                    <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center shrink-0">
-                        <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018a2 2 0 01.485.06l3.76.94m-7 10v5a2 2 0 002 2h.096c.5 0 .905-.405.905-.904 0-.715.211-1.413.608-2.008L17 13V4m-7 10h2m5-10h2a2 2 0 012 2v6a2 2 0 01-2 2h-2.5" />
-                        </svg>
+            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-gray-100 dark:border-slate-700 w-full max-w-lg mx-4 p-6 animate-up">
+                {/* Header */}
+                <div className="flex items-center justify-between mb-5">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
+                            <svg className="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" />
+                            </svg>
+                        </div>
+                        <div>
+                            <h2 className="text-lg font-bold text-gray-900 dark:text-white">Raise a Support Ticket</h2>
+                            <p className="text-sm text-gray-500 dark:text-gray-400">Review the response below before raising a ticket</p>
+                        </div>
                     </div>
-                    <div>
-                        <h2 className="text-lg font-bold text-gray-900 dark:text-white">Help us improve AskHR</h2>
-                        <p className="text-sm text-gray-500 dark:text-gray-400">Please give feedback so that we can improve our AskHR system</p>
+                    <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 dark:hover:bg-slate-700 rounded-xl transition-all shrink-0">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                </div>
+
+                {/* User Question */}
+                <div className="mb-3">
+                    <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1.5">Your Question</p>
+                    <div className="bg-zuari-navy/5 dark:bg-slate-800 rounded-xl px-4 py-3 text-sm text-gray-700 dark:text-gray-200 font-medium">
+                        {question}
                     </div>
                 </div>
-                <textarea
-                    className="w-full rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 text-gray-800 dark:text-white text-sm p-3 outline-none focus:ring-2 focus:ring-red-400/30 focus:border-red-400 resize-none transition-all"
-                    rows={4}
-                    placeholder="Describe what was wrong or how we can improve... (optional)"
-                    value={desc}
-                    onChange={e => setDesc(e.target.value)}
-                />
-                <div className="flex gap-3 mt-4">
+
+                {/* AI Response */}
+                <div className="mb-4">
+                    <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1.5">AskHR's Response</p>
+                    <div
+                        className="bg-gray-50 dark:bg-slate-800/60 rounded-xl px-4 py-3 text-sm text-gray-600 dark:text-gray-300 max-h-44 overflow-y-auto custom-scrollbar prose prose-sm max-w-none dark:prose-invert"
+                        dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(answer) }}
+                    />
+                </div>
+
+                {/* Confirmation text */}
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
+                    AskHR has provided the response above. Are you still not satisfied and want to raise a ticket?
+                    An <span className="font-semibold text-gray-700 dark:text-gray-200">HROps representative</span> will review and follow up with you.
+                </p>
+
+                {/* Description */}
+                <div className="mb-4">
+                    <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1.5">Description <span className="text-red-400">*</span></p>
+                    <textarea
+                        className="w-full rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 text-gray-800 dark:text-white text-sm p-3 outline-none focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400 resize-none transition-all"
+                        rows={3}
+                        placeholder="Describe what you need help with..."
+                        value={desc}
+                        onChange={e => setDesc(e.target.value)}
+                    />
+                </div>
+
+                {error && <p className="text-xs text-red-500 mb-3">{error}</p>}
+
+                {/* Actions */}
+                <div className="flex gap-3">
                     <button
                         onClick={onClose}
                         className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 text-sm font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-all"
@@ -43,11 +91,11 @@ const FeedbackModal = ({ onClose, onSubmit }) => {
                         Cancel
                     </button>
                     <button
-                        onClick={handleSubmit}
-                        disabled={submitting}
-                        className="flex-1 py-2.5 rounded-xl bg-zuari-navy text-white text-sm font-semibold hover:bg-[#122856] transition-all disabled:opacity-70"
+                        onClick={handleRaise}
+                        disabled={raising}
+                        className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold transition-all disabled:opacity-70"
                     >
-                        {submitting ? 'Submitting...' : 'Submit Feedback'}
+                        {raising ? 'Raising...' : 'Raise Ticket'}
                     </button>
                 </div>
             </div>
@@ -55,18 +103,165 @@ const FeedbackModal = ({ onClose, onSubmit }) => {
     );
 };
 
+const TicketSuccessModal = ({ ticket, onClose }) => (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-gray-100 dark:border-slate-700 w-full max-w-md mx-4 p-6 animate-up text-center relative">
+            <button onClick={onClose} className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 dark:hover:bg-slate-700 rounded-xl transition-all">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+            <div className="w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30 mx-auto mb-4 flex items-center justify-center">
+                <svg className="w-8 h-8 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
+                </svg>
+            </div>
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Ticket Raised Successfully!</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                Your ticket has been submitted and assigned to an HROps representative who will review and follow up.
+            </p>
+            {ticket?.ticketNumber && (
+                <div className="bg-gray-50 dark:bg-slate-800 rounded-xl px-4 py-3 mb-4 inline-block">
+                    <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Ticket ID</span>
+                    <p className="text-lg font-black text-zuari-navy dark:text-blue-400">{ticket.ticketNumber}</p>
+                </div>
+            )}
+            <div className="text-xs text-gray-400 mb-5">
+                You can track the status of your ticket in the <span className="font-semibold text-gray-600 dark:text-gray-300">Tickets</span> section from the sidebar.
+            </div>
+            <button
+                onClick={onClose}
+                className="w-full py-2.5 rounded-xl bg-zuari-navy hover:bg-[#122856] text-white text-sm font-semibold transition-all"
+            >
+                Got it
+            </button>
+        </div>
+    </div>
+);
+
+const TicketQAModal = ({ evaluation, evaluating, error, onProceed, onClose }) => (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-gray-100 dark:border-slate-700 w-full max-w-md mx-4 p-6 animate-up relative">
+            <button onClick={onClose} className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 dark:hover:bg-slate-700 rounded-xl transition-all">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+
+            {/* Header */}
+            <div className="flex items-center gap-3 mb-5">
+                <div className="w-10 h-10 rounded-xl bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
+                    <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                    </svg>
+                </div>
+                <div>
+                    <h2 className="text-lg font-bold text-gray-900 dark:text-white">Quality Check</h2>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Evaluating your request before raising a ticket</p>
+                </div>
+            </div>
+
+            {evaluating ? (
+                <div className="py-8 text-center">
+                    <div className="w-10 h-10 border-3 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-4"></div>
+                    <p className="text-sm font-semibold text-gray-600 dark:text-gray-300">Analyzing your conversation...</p>
+                    <p className="text-xs text-gray-400 mt-1">Our AI is checking if a ticket is needed</p>
+                </div>
+            ) : error ? (
+                <div className="py-6">
+                    <p className="text-sm text-red-500 mb-4">{error}</p>
+                    <div className="flex gap-3">
+                        <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 text-sm font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-all">Cancel</button>
+                        <button onClick={onProceed} className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold transition-all">Proceed Anyway</button>
+                    </div>
+                </div>
+            ) : evaluation ? (
+                <div>
+                    {/* Result indicator */}
+                    <div className={`rounded-xl p-4 mb-4 border ${evaluation.necessary ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800/30' : 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800/30'}`}>
+                        <div className="flex items-start gap-3">
+                            {evaluation.necessary ? (
+                                <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center shrink-0 mt-0.5">
+                                    <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
+                                </div>
+                            ) : (
+                                <div className="w-8 h-8 rounded-lg bg-green-100 dark:bg-green-900/40 flex items-center justify-center shrink-0 mt-0.5">
+                                    <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
+                                </div>
+                            )}
+                            <div>
+                                <p className={`text-sm font-bold ${evaluation.necessary ? 'text-amber-700 dark:text-amber-400' : 'text-green-700 dark:text-green-400'}`}>
+                                    {evaluation.necessary ? 'Ticket may be needed' : 'AI response seems sufficient'}
+                                </p>
+                                <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">{evaluation.reason}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Suggestion (when ticket not necessary) */}
+                    {!evaluation.necessary && evaluation.suggestion && (
+                        <div className="bg-blue-50/60 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-800/30 rounded-xl px-4 py-3 mb-4">
+                            <p className="text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider mb-1">Suggestion</p>
+                            <p className="text-sm text-blue-700 dark:text-blue-300">{evaluation.suggestion}</p>
+                        </div>
+                    )}
+
+                    {/* Actions */}
+                    <div className="flex gap-3">
+                        <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 text-sm font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-all">
+                            {evaluation.necessary ? 'Cancel' : 'Got it, no ticket needed'}
+                        </button>
+                        <button onClick={onProceed} className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold transition-all">
+                            {evaluation.necessary ? 'Proceed to Raise Ticket' : 'Raise Anyway'}
+                        </button>
+                    </div>
+                </div>
+            ) : null}
+        </div>
+    </div>
+);
+
 const ChatArea = ({
     messages, isLoading, onSendMessage, user, toggleSidebar,
     toggleDarkMode, dynamicFaqs, isFaqLoading,
-    selectedPolicyTitle, setSelectedPolicyTitle, availablePolicies
+    selectedPolicyTitle, setSelectedPolicyTitle, availablePolicies,
+    initialFeedbackIds, initialTicketMap
 }) => {
     const [input, setInput] = useState('');
     const scrollRef = useRef(null);
 
     // Feedback states
-    const [feedbackMap, setFeedbackMap] = useState({}); // msgId -> 'up'|'down'
-    const [submittedSet, setSubmittedSet] = useState(new Set()); // msgIds with submitted feedback
-    const [feedbackModal, setFeedbackModal] = useState(null); // { msgId, question, answer }
+    const [feedbackMap, setFeedbackMap] = useState({}); // msgId -> 'up'
+    const [submittedSet, setSubmittedSet] = useState(new Set()); // msgIds with submitted thumbs-up
+    // Ticket states
+    const [ticketModal, setTicketModal] = useState(null); // { msgId, queryId, responseId, question, answer }
+    const [ticketRaisedMap, setTicketRaisedMap] = useState({}); // msgId -> ticketNumber
+    const [successTicket, setSuccessTicket] = useState(null); // ticket data for success modal
+    // QA evaluation states
+    const [qaModal, setQaModal] = useState(null); // { msgId, queryId, responseId, question, answer }
+    const [qaEvaluation, setQaEvaluation] = useState(null);
+    const [qaEvaluating, setQaEvaluating] = useState(false);
+    const [qaError, setQaError] = useState('');
+
+    // Populate persisted feedback & ticket states from backend
+    useEffect(() => {
+        if (initialFeedbackIds?.length) {
+            const newFeedback = {};
+            const newSubmitted = new Set();
+            initialFeedbackIds.forEach(id => {
+                newFeedback[id] = 'up';
+                newSubmitted.add(id);
+            });
+            setFeedbackMap(newFeedback);
+            setSubmittedSet(newSubmitted);
+        } else {
+            setFeedbackMap({});
+            setSubmittedSet(new Set());
+        }
+        if (initialTicketMap?.length) {
+            const map = {};
+            initialTicketMap.forEach(t => { map[t.responseId] = t.ticketNumber; });
+            setTicketRaisedMap(map);
+        } else {
+            setTicketRaisedMap({});
+        }
+    }, [initialFeedbackIds, initialTicketMap]);
 
     useEffect(() => {
         if (scrollRef.current) {
@@ -96,66 +291,90 @@ const ChatArea = ({
         return null;
     };
 
-    const handleThumb = async (msg, msgIndex, thumb) => {
+    const handleThumb = async (msg, msgIndex) => {
         const msgId = msg._id || msg.id;
-        // Already submitted — ignore
         if (submittedSet.has(msgId)) return;
-
-        setFeedbackMap(prev => ({ ...prev, [msgId]: thumb }));
-
+        setFeedbackMap(prev => ({ ...prev, [msgId]: 'up' }));
         const userMsg = getRelatedUserMessage(msgIndex);
-        const queryId = userMsg?._id || userMsg?.id;
-        const responseId = msg._id || msg.id;
-
-        if (thumb === 'down') {
-            setFeedbackModal({ msgId, queryId, responseId, question: userMsg?.content || '', answer: msg.content });
-        } else {
-            try {
-                await submitFeedback({
-                    queryId,
-                    responseId,
-                    userQuestion: userMsg?.content || '',
-                    aiResponse: msg.content,
-                    thumbs: 'up',
-                    description: ''
-                });
-                // Lock the buttons
-                setSubmittedSet(prev => new Set([...prev, msgId]));
-            } catch (e) {
-                console.error('Feedback error:', e);
-            }
-        }
-    };
-
-    const handleModalSubmit = async (description) => {
-        if (!feedbackModal) return;
         try {
             await submitFeedback({
-                queryId: feedbackModal.queryId,
-                responseId: feedbackModal.responseId,
-                userQuestion: feedbackModal.question,
-                aiResponse: feedbackModal.answer,
-                thumbs: 'down',
-                description
+                queryId: userMsg?._id || userMsg?.id,
+                responseId: msg._id || msg.id,
+                userQuestion: userMsg?.content || '',
+                aiResponse: msg.content,
+                thumbs: 'up',
+                description: ''
             });
-            // Lock the buttons for this message
-            setSubmittedSet(prev => new Set([...prev, feedbackModal.msgId]));
+            setSubmittedSet(prev => new Set([...prev, msgId]));
         } catch (e) {
             console.error('Feedback error:', e);
         }
-        setFeedbackModal(null);
     };
 
-    const handleModalClose = () => {
-        // Remove the 'down' state if user cancels
-        if (feedbackModal) {
-            setFeedbackMap(prev => {
-                const copy = { ...prev };
-                delete copy[feedbackModal.msgId];
-                return copy;
-            });
+    const handleTicketClick = async (msg, msgIndex) => {
+        const msgId = msg._id || msg.id;
+        const userMsg = getRelatedUserMessage(msgIndex);
+        const ticketData = {
+            msgId,
+            queryId: userMsg?._id || userMsg?.id,
+            responseId: msg._id || msg.id,
+            question: userMsg?.content || '',
+            answer: msg.content,
+        };
+
+        const aiResponseLower = (msg.content || '').toLowerCase();
+        if (aiResponseLower.includes('not covered') || aiResponseLower.includes('not available for your employee profile')) {
+            setTicketModal(ticketData);
+            return;
         }
-        setFeedbackModal(null);
+
+        // Open QA evaluation modal and start evaluation
+        setQaModal(ticketData);
+        setQaEvaluation(null);
+        setQaError('');
+        setQaEvaluating(true);
+
+        try {
+            // Build conversation context for evaluation
+            const conversationMessages = messages.map(m => ({
+                role: m.role,
+                content: (m.content || '').replace(/<[^>]*>/g, '').substring(0, 500),
+            }));
+
+            const result = await evaluateTicketApi({
+                conversationMessages,
+                userQuestion: userMsg?.content || '',
+                aiResponse: (msg.content || '').replace(/<[^>]*>/g, '').substring(0, 2000),
+                selectedPolicy: selectedPolicyTitle || '',
+            });
+            setQaEvaluation(result);
+        } catch (e) {
+            setQaError(e.message || 'Evaluation failed.');
+        } finally {
+            setQaEvaluating(false);
+        }
+    };
+
+    const handleQaProceed = () => {
+        // Move from QA modal to the raise ticket modal
+        setTicketModal(qaModal);
+        setQaModal(null);
+        setQaEvaluation(null);
+        setQaError('');
+    };
+
+    const handleRaiseTicket = async (description) => {
+        if (!ticketModal) return;
+        const ticket = await raiseTicketApi({
+            queryId: ticketModal.queryId,
+            responseId: ticketModal.responseId,
+            userQuestion: ticketModal.question,
+            aiResponse: ticketModal.answer,
+            description: description || '',
+        });
+        setTicketRaisedMap(prev => ({ ...prev, [ticketModal.msgId]: ticket.ticketNumber }));
+        setTicketModal(null);
+        setSuccessTicket(ticket);
     };
 
     const displayFaqs = dynamicFaqs?.length > 0 ? dynamicFaqs.slice(0, 8) : [];
@@ -207,11 +426,32 @@ const ChatArea = ({
 
     return (
         <div className="flex-1 flex flex-col h-full bg-transparent relative overflow-hidden">
-            {/* Feedback Modal */}
-            {feedbackModal && (
-                <FeedbackModal
-                    onClose={handleModalClose}
-                    onSubmit={handleModalSubmit}
+            {/* QA Evaluation Modal */}
+            {qaModal && (
+                <TicketQAModal
+                    evaluation={qaEvaluation}
+                    evaluating={qaEvaluating}
+                    error={qaError}
+                    onProceed={handleQaProceed}
+                    onClose={() => { setQaModal(null); setQaEvaluation(null); setQaError(''); }}
+                />
+            )}
+
+            {/* Raise Ticket Modal */}
+            {ticketModal && (
+                <RaiseTicketModal
+                    question={ticketModal.question}
+                    answer={ticketModal.answer}
+                    onClose={() => setTicketModal(null)}
+                    onRaise={handleRaiseTicket}
+                />
+            )}
+
+            {/* Ticket Success Modal */}
+            {successTicket && (
+                <TicketSuccessModal
+                    ticket={successTicket}
+                    onClose={() => setSuccessTicket(null)}
                 />
             )}
 
@@ -261,62 +501,53 @@ const ChatArea = ({
                                             </div>
                                         </div>
 
-                                        {/* Thumbs feedback — only for AI messages */}
+                                        {/* Feedback & Ticket — only for AI messages */}
                                         {isAI && (
-                                            <div className="flex items-center gap-2 pt-1 pl-1">
+                                            <div className="flex items-center gap-2 pt-1 pl-1 flex-wrap">
+                                                {/* Thumbs Up */}
                                                 {submittedSet.has(msgId) ? (
-                                                    // Locked state — show selected thumb + thanks
-                                                    <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-semibold
-                                                        ${currentThumb === 'up'
-                                                            ? 'bg-green-50 border-green-200 text-green-700 dark:bg-green-900/20 dark:border-green-700 dark:text-green-400'
-                                                            : 'bg-red-50 border-red-200 text-red-700 dark:bg-red-900/20 dark:border-red-700 dark:text-red-400'
-                                                        }`}>
-                                                        {currentThumb === 'up' ? (
-                                                            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
-                                                                <path d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.904 0 .715-.211 1.413-.608 2.008L7 13v7m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
-                                                            </svg>
-                                                        ) : (
-                                                            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
-                                                                <path d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018a2 2 0 01.485.06l3.76.94m-7 10v5a2 2 0 002 2h.096c.5 0 .905-.405.905-.904 0-.715.211-1.413.608-2.008L17 13V4m-7 10h2m5-10h2a2 2 0 012 2v6a2 2 0 01-2 2h-2.5" />
-                                                            </svg>
-                                                        )}
+                                                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-semibold bg-green-50 border-green-200 text-green-700 dark:bg-green-900/20 dark:border-green-700 dark:text-green-400">
+                                                        <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                                                            <path d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.904 0 .715-.211 1.413-.608 2.008L7 13v7m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
+                                                        </svg>
                                                         <span>Thanks for your feedback!</span>
                                                     </div>
                                                 ) : (
-                                                    // Interactive state
-                                                    <>
-                                                        {/* Thumbs Up */}
-                                                        <button
-                                                            title="Helpful"
-                                                            onClick={() => handleThumb(msg, msgIndex, 'up')}
-                                                            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-all
-                                                                ${currentThumb === 'up'
-                                                                    ? 'bg-green-100 border-green-300 text-green-700 dark:bg-green-900/30 dark:border-green-700 dark:text-green-400'
-                                                                    : 'bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-green-300 hover:text-green-600'
-                                                                }`}
-                                                        >
-                                                            <svg className="w-3.5 h-3.5" fill={currentThumb === 'up' ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.904 0 .715-.211 1.413-.608 2.008L7 13v7m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
-                                                            </svg>
-                                                            {currentThumb === 'up' ? 'Helpful' : 'Helpful?'}
-                                                        </button>
+                                                    <button
+                                                        title="Helpful"
+                                                        onClick={() => handleThumb(msg, msgIndex)}
+                                                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-all
+                                                            ${currentThumb === 'up'
+                                                                ? 'bg-green-100 border-green-300 text-green-700 dark:bg-green-900/30 dark:border-green-700 dark:text-green-400'
+                                                                : 'bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-green-300 hover:text-green-600'
+                                                            }`}
+                                                    >
+                                                        <svg className="w-3.5 h-3.5" fill={currentThumb === 'up' ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.904 0 .715-.211 1.413-.608 2.008L7 13v7m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
+                                                        </svg>
+                                                        {currentThumb === 'up' ? 'Helpful' : 'Helpful?'}
+                                                    </button>
+                                                )}
 
-                                                        {/* Thumbs Down */}
-                                                        <button
-                                                            title="Not helpful"
-                                                            onClick={() => handleThumb(msg, msgIndex, 'down')}
-                                                            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-all
-                                                                ${currentThumb === 'down'
-                                                                    ? 'bg-red-100 border-red-300 text-red-700 dark:bg-red-900/30 dark:border-red-700 dark:text-red-400'
-                                                                    : 'bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-red-300 hover:text-red-600'
-                                                                }`}
-                                                        >
-                                                            <svg className="w-3.5 h-3.5" fill={currentThumb === 'down' ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018a2 2 0 01.485.06l3.76.94m-7 10v5a2 2 0 002 2h.096c.5 0 .905-.405.905-.904 0 .715-.211 1.413.608-2.008L17 13V4m-7 10h2m5-10h2a2 2 0 012 2v6a2 2 0 01-2 2h-2.5" />
-                                                            </svg>
-                                                            {currentThumb === 'down' ? 'Not helpful' : 'Not helpful?'}
-                                                        </button>
-                                                    </>
+                                                {/* Raise a Ticket */}
+                                                {ticketRaisedMap[msgId] ? (
+                                                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-semibold bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-900/20 dark:border-amber-700 dark:text-amber-400">
+                                                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                                                        </svg>
+                                                        <span>Ticket raised ({ticketRaisedMap[msgId]})</span>
+                                                    </div>
+                                                ) : (
+                                                    <button
+                                                        title="Raise a support ticket"
+                                                        onClick={() => handleTicketClick(msg, msgIndex)}
+                                                        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-all bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-amber-300 hover:text-amber-600 dark:hover:border-amber-600 dark:hover:text-amber-400"
+                                                    >
+                                                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" />
+                                                        </svg>
+                                                        Raise a Ticket
+                                                    </button>
                                                 )}
                                             </div>
                                         )}

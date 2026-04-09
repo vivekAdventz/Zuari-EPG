@@ -17,7 +17,11 @@ import SuperAdminDashboard from './pages/superadmin/SuperAdminDashboard';
 import SuperAdminVectorDb from './pages/superadmin/SuperAdminVectorDb';
 import SuperAdminFeedbacks from './pages/superadmin/SuperAdminFeedbacks';
 import SuperAdminInteractions from './pages/superadmin/SuperAdminInteractions';
+import SuperAdminApiCost from './pages/superadmin/SuperAdminApiCost';
 import AdminFeedbackAnalysis from './pages/admin/AdminFeedbackAnalysis';
+import AdminHrOps from './pages/admin/AdminHrOps';
+import HrOpsLayout from './pages/hrops/HrOpsLayout';
+import HrOpsDashboard from './pages/hrops/HrOpsDashboard';
 import Playground from './pages/Playground';
 import AuthCallback from './pages/AuthCallback';
 import SuperAdminLogin from './pages/superadmin/SuperAdminLogin';
@@ -48,16 +52,28 @@ const EmployeeRoute = ({ children }) => {
   if (loading) return null;
 
   if (!user) return <Navigate to="/" replace />;
-  // Allow if user has employee role OR both roles (dual-role users can access employee view)
-  if (!user.roles?.includes('employee') && !user.roles?.includes('admin') && !user.roles?.includes('superAdmin')) {
+  // Allow if user has employee/hrOps role OR both roles (dual-role users can access employee view)
+  if (!user.roles?.includes('employee') && !user.roles?.includes('hrOps') && !user.roles?.includes('admin') && !user.roles?.includes('superAdmin')) {
     return <Navigate to="/" replace />;
   }
-  // Pure admin (no employee role) → redirect to admin dashboard
-  if (!user.roles?.includes('employee')) {
+  // Pure admin (no employee/hrOps role) → redirect to admin dashboard
+  if (!user.roles?.includes('employee') && !user.roles?.includes('hrOps')) {
     if (user.roles?.includes('superAdmin')) return <Navigate to="/super-admin/dashboard" replace />;
     if (user.roles?.includes('admin')) return <Navigate to="/admin/dashboard" replace />;
   }
+  // Pure hrOps (no employee role) → redirect to hrOps portal
+  if (!user.roles?.includes('employee') && user.roles?.includes('hrOps')) {
+    return <Navigate to="/hrops/tickets" replace />;
+  }
 
+  return children;
+};
+
+const HrOpsRoute = ({ children }) => {
+  const { user, loading } = useAuth();
+  if (loading) return null;
+  if (!user) return <Navigate to="/" replace />;
+  if (!user.roles?.includes('hrOps')) return <Navigate to="/" replace />;
   return children;
 };
 
@@ -122,6 +138,17 @@ function App() {
           <Route path="playground" element={<Playground />} />
           <Route path="insights" element={<AdminInsights />} />
           <Route path="feedback-analysis" element={<AdminFeedbackAnalysis />} />
+          <Route path="hrops-management" element={<AdminHrOps />} />
+        </Route>
+
+        {/* HROps Routes */}
+        <Route path="/hrops" element={
+          <HrOpsRoute>
+            <HrOpsLayout />
+          </HrOpsRoute>
+        }>
+          <Route index element={<Navigate to="tickets" replace />} />
+          <Route path="tickets" element={<HrOpsDashboard />} />
         </Route>
 
         {/* Super Admin Routes */}
@@ -136,6 +163,7 @@ function App() {
           <Route path="playground" element={<Playground />} />
           <Route path="feedbacks" element={<SuperAdminFeedbacks />} />
           <Route path="interactions" element={<SuperAdminInteractions />} />
+          <Route path="api-cost" element={<SuperAdminApiCost />} />
         </Route>
 
         {/* Microsoft SSO callback — must be before the wildcard */}

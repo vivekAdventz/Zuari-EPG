@@ -2,6 +2,8 @@ import chatService from '../services/chatService.js';
 import aiService from '../services/aiService.js';
 import { createLog } from '../utils/logger.js';
 import { classifyAndRecord } from '../services/themeService.js';
+import QueryFeedback from '../models/QueryFeedback.js';
+import Ticket from '../models/Ticket.js';
 
 // @desc    Create a new conversation
 // @route   POST /api/chat/conversation
@@ -60,10 +62,24 @@ const getMessages = async (req, res, next) => {
 
         const messages = await chatService.getMessages(conversation._id);
 
+        // Fetch feedback & ticket state for this conversation's messages
+        const messageIds = messages.map(m => m._id);
+
+        const [feedbacks, tickets] = await Promise.all([
+            QueryFeedback.find({ responseId: { $in: messageIds } }).select('responseId thumbs').lean(),
+            Ticket.find({ responseMessageId: { $in: messageIds }, userId: req.user._id }).select('responseMessageId ticketNumber').lean(),
+        ]);
+
+        // Build lookup data
+        const feedbackResponseIds = feedbacks.map(f => f.responseId.toString());
+        const ticketResponseMap = tickets.map(t => ({ responseId: t.responseMessageId.toString(), ticketNumber: t.ticketNumber }));
+
         res.status(200).json({
             statusCode: 200,
             success: true,
-            data: messages
+            data: messages,
+            feedbackResponseIds,
+            ticketResponseMap,
         });
     } catch (error) {
         next(error);
@@ -211,6 +227,7 @@ const deleteConversation = async (req, res, next) => {
 
 import Policy from '../models/Policy.js';
 import FAQ from '../models/FAQ.js';
+import QuestionTheme from '../models/QuestionTheme.js';
 
 // @desc    Get all available policies for an employee
 // @route   GET /api/chat/policies
@@ -303,6 +320,21 @@ const getDynamicFAQs = async (req, res, next) => {
     }
 };
 
+// @desc    Get predefined question themes (employee-accessible)
+// @route   GET /api/chat/question-themes
+// @access  Private
+const getEmployeeQuestionThemes = async (req, res, next) => {
+    try {
+        const themes = await QuestionTheme.find({ isPredefined: true })
+            .select('_id name description')
+            .sort({ name: 1 })
+            .lean();
+        res.json({ success: true, data: themes });
+    } catch (error) {
+        next(error);
+    }
+};
+
 export {
     createConversation,
     getConversations,
@@ -310,5 +342,6 @@ export {
     sendMessage,
     deleteConversation,
     getAvailablePolicies,
-    getDynamicFAQs
+    getDynamicFAQs,
+    getEmployeeQuestionThemes
 };

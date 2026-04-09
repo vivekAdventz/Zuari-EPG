@@ -1,5 +1,5 @@
 import express from 'express';
-import { getVectorDbData, optimizeVectorDb } from '../controllers/superAdminController.js';
+import { getVectorDbData, optimizeVectorDb, getApiUsageStats } from '../controllers/superAdminController.js';
 import { getQueryFeedbacks, getUserFeedbacks } from '../controllers/feedbackController.js';
 import { getInteractionsAdmin } from '../controllers/interactionsController.js';
 import { protect } from '../middleware/authMiddleware.js';
@@ -26,5 +26,8 @@ router.get('/feedbacks/users', protect, superAdmin, getUserFeedbacks);
 
 // User Q&A Interactions
 router.get('/interactions', protect, superAdmin, getInteractionsAdmin);
+
+// API Usage & Cost
+router.get('/api-cost', protect, superAdmin, getApiUsageStats);
 
 export default router;

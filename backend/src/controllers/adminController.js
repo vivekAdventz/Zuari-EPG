@@ -6,6 +6,7 @@ import Log from '../models/Log.js';
 import Message from '../models/Message.js';
 import EmployeeCategory from '../models/EmployeeCategory.js';
 import ImpactLevel from '../models/ImpactLevel.js';
+import QuestionTheme from '../models/QuestionTheme.js';
 // We will need a service to handle chunking logic, but for now we can simulate or create a placeholder
 import { processPolicyFile, publishPolicy as publishPolicyService, deleteChunks } from '../services/chunkService.js';
 import XLSX from 'xlsx';
@@ -123,6 +124,10 @@ const updateUser = async (req, res, next) => {
             user.level = req.body.level !== undefined ? (req.body.level || null) : user.level;
             user.empCategory = req.body.empCategory !== undefined ? (req.body.empCategory || null) : user.empCategory;
             user.status = req.body.status || user.status;
+
+            if (req.body.assignedThemes !== undefined) {
+                user.assignedThemes = req.body.assignedThemes;
+            }
 
             if (req.body.roles && Array.isArray(req.body.roles) && req.body.roles.length > 0) {
                 user.roles = req.body.roles;
@@ -1001,6 +1006,129 @@ const bulkCreateEmployees = async (req, res, next) => {
     }
 };
 
+// ── HROps Management ──────────────────────────────────────────────────────
+
+// GET /api/admin/hrops
+const getHrOpsAssignments = async (req, res, next) => {
+    try {
+        const themes = await QuestionTheme.find({ isPredefined: true }).sort({ name: 1 }).lean();
+        const hrOpsUsers = await User.find({ roles: 'hrOps' })
+            .select('name email status assignedThemes roles')
+            .lean();
+
+        // Dropdown only shows existing hrOps users (not all employees)
+        const hrOpsEmployees = hrOpsUsers
+            .map(u => ({ _id: u._id, name: u.name, email: u.email, status: u.status }))
+            .sort((a, b) => a.name.localeCompare(b.name));
+
+        const result = themes.map(theme => ({
+            ...theme,
+            hrOpsUsers: hrOpsUsers
+                .filter(u => u.assignedThemes.some(t => t.toString() === theme._id.toString()))
+                .map(u => ({ _id: u._id, name: u.name, email: u.email, status: u.status })),
+        }));
+
+        res.status(200).json({ statusCode: 200, success: true, data: result, employees: hrOpsEmployees });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// POST /api/admin/hrops/assign  { themeId, userId }
+const assignHrOps = async (req, res, next) => {
+    try {
+        const { themeId, userId } = req.body;
+        if (!themeId || !userId) { res.status(400); throw new Error('themeId and userId are required'); }
+
+        const user = await User.findById(userId);
+        if (!user) { res.status(404); throw new Error('User not found'); }
+
+        // HROps cannot be admin
+        if (user.roles.includes('admin') || user.roles.includes('superAdmin')) {
+            res.status(400); throw new Error('Admin users cannot be assigned as HROps');
+        }
+
+        // Enforce one HROps per category: remove any existing HROps from this theme first
+        const existing = await User.find({ roles: 'hrOps', assignedThemes: themeId });
+        for (const prev of existing) {
+            if (prev._id.toString() !== userId) {
+                prev.assignedThemes = prev.assignedThemes.filter(t => t.toString() !== themeId);
+                await prev.save();
+            }
+        }
+
+        if (!user.roles.includes('hrOps')) user.roles.push('hrOps');
+        if (!user.assignedThemes.map(t => t.toString()).includes(themeId)) {
+            user.assignedThemes.push(themeId);
+        }
+        await user.save();
+
+        res.status(200).json({ statusCode: 200, success: true, message: 'HROps assigned successfully' });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// DELETE /api/admin/hrops/unassign  { themeId, userId }
+const unassignHrOps = async (req, res, next) => {
+    try {
+        const { themeId, userId } = req.body;
+        if (!themeId || !userId) { res.status(400); throw new Error('themeId and userId are required'); }
+
+        const user = await User.findById(userId);
+        if (!user) { res.status(404); throw new Error('User not found'); }
+
+        user.assignedThemes = user.assignedThemes.filter(t => t.toString() !== themeId);
+        await user.save();
+
+        res.status(200).json({ statusCode: 200, success: true, message: 'HROps unassigned successfully' });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// PATCH /api/admin/hrops/status  { userId, status }
+const toggleHrOpsUserStatus = async (req, res, next) => {
+    try {
+        const { userId, status } = req.body;
+        if (!userId || !['active', 'inactive'].includes(status)) {
+            res.status(400); throw new Error('userId and valid status (active/inactive) required');
+        }
+        const user = await User.findByIdAndUpdate(userId, { status }, { new: true }).select('name email status');
+        if (!user) { res.status(404); throw new Error('User not found'); }
+        res.status(200).json({ statusCode: 200, success: true, data: user });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// PATCH /api/admin/hrops/closure  { themeId, daysToClosure }
+const updateThemeClosure = async (req, res, next) => {
+    try {
+        const { themeId, daysToClosure } = req.body;
+        if (!themeId) { res.status(400); throw new Error('themeId is required'); }
+
+        const value = daysToClosure === null || daysToClosure === '' || daysToClosure === undefined
+            ? null
+            : Number(daysToClosure);
+
+        if (value !== null && (!Number.isInteger(value) || value < 1)) {
+            res.status(400); throw new Error('daysToClosure must be a positive integer or null');
+        }
+
+        const theme = await QuestionTheme.findByIdAndUpdate(
+            themeId,
+            { daysToClosure: value },
+            { new: true }
+        );
+        if (!theme) { res.status(404); throw new Error('Theme not found'); }
+
+        res.status(200).json({ statusCode: 200, success: true, data: theme });
+    } catch (error) {
+        next(error);
+    }
+};
+
 export {
     getDashboardStats,
     getUsers,
@@ -1022,5 +1150,10 @@ export {
     updatePolicy,
     publishPolicy,
     getArchivedPolicies,
-    generatePolicyFaqs
+    generatePolicyFaqs,
+    getHrOpsAssignments,
+    assignHrOps,
+    unassignHrOps,
+    toggleHrOpsUserStatus,
+    updateThemeClosure,
 };

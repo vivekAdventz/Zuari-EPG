@@ -46,6 +46,13 @@ const userSchema = new mongoose.Schema(
       default: null
     },
 
+    assignedThemes: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'QuestionTheme'
+      }
+    ],
+
     // ── Kept as plain string for quick access without join ────────────────
     entity_code: {
       type: String,
@@ -63,7 +70,7 @@ const userSchema = new mongoose.Schema(
 
     roles: {
       type: [String],
-      enum: ["employee", "admin", "superAdmin"],
+      enum: ["employee", "admin", "superAdmin", "hrOps"],
       default: ["employee"]
     },
 
