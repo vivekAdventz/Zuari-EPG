@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Outlet, useNavigate } from 'react-router-dom';
+import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 
 const HrOpsLayout = () => {
     const { user, logout } = useAuth();
     const navigate = useNavigate();
+    const location = useLocation();
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+    const isEmployee = user?.roles?.includes('employee');
 
     useEffect(() => {
         if (window.innerWidth < 768) setIsSidebarOpen(false);
@@ -53,23 +55,31 @@ const HrOpsLayout = () => {
 
                 {/* Nav */}
                 <nav className="flex-1 px-4 py-6 space-y-2">
+                    {/* Dashboard */}
+                    <button
+                        onClick={() => navigate('/hrops/dashboard')}
+                        className={`w-full flex items-center gap-4 px-4 py-3.5 rounded-xl transition-all ${
+                            location.pathname === '/hrops/dashboard'
+                                ? 'bg-blue-600 shadow-md text-white'
+                                : 'text-blue-100 hover:bg-white/10 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-white'
+                        }`}
+                    >
+                        <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
+                        {isSidebarOpen && <span className="font-semibold text-sm">Dashboard</span>}
+                    </button>
+
+                    {/* Ticket Console */}
                     <button
                         onClick={() => navigate('/hrops/tickets')}
-                        className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl bg-blue-600 shadow-md text-white transition-all"
+                        className={`w-full flex items-center gap-4 px-4 py-3.5 rounded-xl transition-all ${
+                            location.pathname === '/hrops/tickets'
+                                ? 'bg-blue-600 shadow-md text-white'
+                                : 'text-blue-100 hover:bg-white/10 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-white'
+                        }`}
                     >
                         <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
                         {isSidebarOpen && <span className="font-semibold text-sm">Ticket Console</span>}
                     </button>
-
-                    {user?.roles?.includes('employee') && (
-                        <button
-                            onClick={() => navigate('/chat')}
-                            className="w-full flex items-center gap-4 px-4 py-3.5 rounded-xl text-blue-100 hover:bg-white/10 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-white transition-all"
-                        >
-                            <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>
-                            {isSidebarOpen && <span className="font-semibold text-sm">Employee View</span>}
-                        </button>
-                    )}
                 </nav>
 
                 {/* Footer */}
@@ -107,7 +117,26 @@ const HrOpsLayout = () => {
                     <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2 text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors">
                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h7" /></svg>
                     </button>
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-3">
+                        {/* Toggle button — visible when user also has employee role */}
+                        {isEmployee && (
+                            <div className="flex items-center gap-1 p-1 rounded-xl bg-gray-100 dark:bg-slate-700 border border-gray-200 dark:border-slate-600">
+                                <button
+                                    onClick={() => navigate('/chat')}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-white hover:bg-white dark:hover:bg-slate-600 transition-all"
+                                    title="Switch to Employee View"
+                                >
+                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>
+                                    <span className="hidden sm:inline">Employee</span>
+                                </button>
+                                <button
+                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-600 text-white shadow-sm cursor-default"
+                                >
+                                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" /></svg>
+                                    <span className="hidden sm:inline">HROps</span>
+                                </button>
+                            </div>
+                        )}
                         <div className="text-right hidden sm:block">
                             <div className="text-sm font-bold text-gray-800 dark:text-white">{user?.name}</div>
                             <div className="text-xs text-emerald-500 font-bold tracking-wider uppercase">HROps</div>

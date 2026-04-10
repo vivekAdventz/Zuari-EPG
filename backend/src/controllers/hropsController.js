@@ -182,11 +182,6 @@ const sendTicketMessage = async (req, res, next) => {
             readBy: [req.user._id],
         });
 
-        // Auto-update ticket to hold if still open
-        if (ticket.status === 'open') {
-            await Ticket.findByIdAndUpdate(id, { status: 'hold' });
-        }
-
         res.status(201).json({ statusCode: 201, success: true, data: msg });
     } catch (error) {
         next(error);
