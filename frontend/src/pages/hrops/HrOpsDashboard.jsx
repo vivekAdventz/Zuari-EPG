@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
+import { FiMessageCircle } from 'react-icons/fi';
 import {
-    getHrOpsStats, getAssignedTickets, updateAssignedTicket,
-    getHrOpsTicketMessages, sendHrOpsTicketMessage,
+    getHrOpsStats, getAssignedTickets,
 } from '../../api';
+import TicketChatModal from '../../components/TicketChatModal';
 
 const STATUS_META = {
     open:         { label: 'Open',        cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
@@ -18,172 +19,6 @@ const StatusBadge = ({ status }) => {
             <span className={`w-1.5 h-1.5 rounded-full ${status === 'resolved' ? 'bg-green-500' : status === 'hold' ? 'bg-amber-500' : 'bg-blue-500'}`} />
             {m.label}
         </span>
-    );
-};
-
-// ─── Ticket Chat Panel ────────────────────────────────────────────────────────
-const TicketChatPanel = ({ ticket, onClose, onTicketUpdate }) => {
-    const [messages, setMessages] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [input, setInput] = useState('');
-    const [sending, setSending] = useState(false);
-    const [hrResponse, setHrResponse] = useState(ticket.hrResponse || '');
-    const [status, setStatus] = useState(ticket.status);
-    const [saving, setSaving] = useState(false);
-    const scrollRef = useRef(null);
-
-    const fetchMessages = async () => {
-        try {
-            const msgs = await getHrOpsTicketMessages(ticket._id);
-            setMessages(msgs);
-        } catch (e) {
-            console.error(e);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    useEffect(() => { fetchMessages(); }, [ticket._id]);
-
-    useEffect(() => {
-        if (scrollRef.current) {
-            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-        }
-    }, [messages]);
-
-    const handleSend = async () => {
-        if (!input.trim() || sending) return;
-        setSending(true);
-        try {
-            const msg = await sendHrOpsTicketMessage(ticket._id, input.trim());
-            setMessages(prev => [...prev, msg]);
-            setInput('');
-        } catch (e) {
-            toast.error(e.message || 'Failed to send');
-        } finally {
-            setSending(false);
-        }
-    };
-
-    const handleSaveResponse = async () => {
-        setSaving(true);
-        try {
-            const updated = await updateAssignedTicket(ticket._id, { status, hrResponse });
-            toast.success('Ticket updated');
-            onTicketUpdate(updated);
-        } catch (e) {
-            toast.error(e.message || 'Failed to update ticket');
-        } finally {
-            setSaving(false);
-        }
-    };
-
-    return (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-gray-100 dark:border-slate-700 w-full max-w-2xl max-h-[90vh] flex flex-col animate-up">
-                {/* Header */}
-                <div className="flex items-start justify-between p-5 border-b border-gray-100 dark:border-slate-800">
-                    <div>
-                        <div className="flex items-center gap-2 mb-1">
-                            <span className="text-sm font-mono font-black text-blue-600 dark:text-blue-400">{ticket.ticketNumber}</span>
-                            <StatusBadge status={status} />
-                        </div>
-                        <h2 className="font-bold text-gray-900 dark:text-white text-base">{ticket.subject || ticket.userQuestion || 'No subject'}</h2>
-                        <div className="text-xs text-gray-400 mt-0.5">{ticket.userName} &bull; {ticket.userEntity} &bull; {ticket.themeName}</div>
-                    </div>
-                    <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-600 bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 rounded-xl transition-all shrink-0 ml-3">
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                    </button>
-                </div>
-
-                <div className="flex-1 overflow-y-auto custom-scrollbar">
-                    {/* Ticket Details */}
-                    <div className="p-5 border-b border-gray-100 dark:border-slate-800 space-y-3">
-                        {ticket.description && (
-                            <div>
-                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">Description</p>
-                                <p className="text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap bg-gray-50 dark:bg-slate-800 rounded-xl px-4 py-3">{ticket.description}</p>
-                            </div>
-                        )}
-                        {ticket.userQuestion && (
-                            <div>
-                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1">Employee Question</p>
-                                <p className="text-sm text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-slate-800 rounded-xl px-4 py-3">{ticket.userQuestion}</p>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Chat */}
-                    <div className="p-5 border-b border-gray-100 dark:border-slate-800">
-                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-3">Conversation</p>
-                        <div ref={scrollRef} className="space-y-3 max-h-52 overflow-y-auto custom-scrollbar pr-1">
-                            {loading ? (
-                                <div className="text-center text-xs text-gray-400 py-4">Loading messages...</div>
-                            ) : messages.length === 0 ? (
-                                <div className="text-center text-xs text-gray-400 py-4">No messages yet. Start the conversation.</div>
-                            ) : messages.map(msg => (
-                                <div key={msg._id} className={`flex ${msg.senderRole === 'hrOps' ? 'justify-end' : 'justify-start'}`}>
-                                    <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm ${msg.senderRole === 'hrOps' ? 'bg-blue-600 text-white rounded-br-md' : 'bg-gray-100 dark:bg-slate-800 text-gray-800 dark:text-white rounded-bl-md'}`}>
-                                        <p className="text-[10px] font-bold mb-1 opacity-70">{msg.senderName}</p>
-                                        <p className="leading-relaxed">{msg.message}</p>
-                                        <p className="text-[10px] mt-1 opacity-60 text-right">{new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                        {status !== 'resolved' && (
-                            <div className="flex gap-2 mt-3">
-                                <input
-                                    type="text"
-                                    value={input}
-                                    onChange={e => setInput(e.target.value)}
-                                    onKeyDown={e => e.key === 'Enter' && handleSend()}
-                                    placeholder="Type a message..."
-                                    className="flex-1 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 text-sm px-3 py-2 outline-none focus:ring-2 focus:ring-blue-400/30 focus:border-blue-400 text-gray-800 dark:text-white transition-all"
-                                />
-                                <button onClick={handleSend} disabled={sending || !input.trim()} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-xl transition-all disabled:opacity-50">
-                                    {sending ? '...' : 'Send'}
-                                </button>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* HR Response + Status */}
-                    <div className="p-5 space-y-4">
-                        <div>
-                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1.5 block">HR Response (visible to employee)</label>
-                            <textarea
-                                value={hrResponse}
-                                onChange={e => setHrResponse(e.target.value)}
-                                rows={3}
-                                placeholder="Write your formal response to the employee..."
-                                disabled={status === 'resolved'}
-                                className="w-full rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 text-sm p-3 outline-none focus:ring-2 focus:ring-emerald-400/30 focus:border-emerald-400 resize-none text-gray-800 dark:text-white transition-all disabled:opacity-60"
-                            />
-                        </div>
-                        <div>
-                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-wider mb-1.5 block">Status</label>
-                            <select
-                                value={status}
-                                onChange={e => setStatus(e.target.value)}
-                                className="w-full rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 text-sm p-2.5 outline-none focus:ring-2 focus:ring-blue-400/30 text-gray-800 dark:text-white transition-all"
-                            >
-                                <option value="open">Open</option>
-                                <option value="hold">Hold</option>
-                                <option value="resolved">Resolved</option>
-                            </select>
-                        </div>
-                        <button
-                            onClick={handleSaveResponse}
-                            disabled={saving}
-                            className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold transition-all disabled:opacity-50"
-                        >
-                            {saving ? 'Saving...' : 'Save Response & Status'}
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
     );
 };
 
@@ -213,11 +48,6 @@ const HrOpsDashboard = () => {
 
     useEffect(() => { fetchData(); }, [statusFilter]);
 
-    const handleTicketUpdate = (updated) => {
-        setTickets(prev => prev.map(t => t._id === updated._id ? { ...t, ...updated } : t));
-        setSelectedTicket(prev => prev?._id === updated._id ? { ...prev, ...updated } : prev);
-    };
-
     const timeAgo = (date) => {
         const diff = Date.now() - new Date(date);
         const h = Math.floor(diff / 3600000);
@@ -228,15 +58,17 @@ const HrOpsDashboard = () => {
     };
 
     return (
-        <div className="space-y-6 animate-up">
+        <>
+            {/* Modal rendered outside animate-up to avoid transform stacking context breaking fixed positioning */}
             {selectedTicket && (
-                <TicketChatPanel
+                <TicketChatModal
                     ticket={selectedTicket}
-                    onClose={() => setSelectedTicket(null)}
-                    onTicketUpdate={handleTicketUpdate}
+                    onClose={() => { setSelectedTicket(null); fetchData(); }}
+                    userRole="hrOps"
                 />
             )}
 
+        <div className="space-y-6 animate-up">
             {/* Header */}
             <div className="flex items-start justify-between flex-wrap gap-4">
                 <div>
@@ -357,16 +189,16 @@ const HrOpsDashboard = () => {
                                     <td className="px-5 py-4 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
                                         {new Date(ticket.createdAt).toLocaleDateString()}
                                     </td>
-                                    <td className="px-5 py-4" onClick={e => e.stopPropagation()}>
+                                    <td className="px-5 py-4 text-center" onClick={e => e.stopPropagation()}>
                                         <button
                                             onClick={() => setSelectedTicket(ticket)}
-                                            className="relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 text-xs font-bold hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-all"
+                                            className="relative p-2 rounded-xl transition-all text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/40 cursor-pointer"
+                                            title="Open Chat"
                                         >
-                                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>
-                                            Chat
+                                            <FiMessageCircle size={20} />
                                             {ticket.unreadMessages > 0 && (
-                                                <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-black flex items-center justify-center">
-                                                    {ticket.unreadMessages}
+                                                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] flex items-center justify-center bg-red-500 text-white text-[10px] font-bold rounded-full px-1 border-2 border-white dark:border-slate-800">
+                                                    {ticket.unreadMessages > 99 ? '99+' : ticket.unreadMessages}
                                                 </span>
                                             )}
                                         </button>
@@ -378,6 +210,7 @@ const HrOpsDashboard = () => {
                 </div>
             </div>
         </div>
+        </>
     );
 };
 

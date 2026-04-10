@@ -210,6 +210,19 @@ const raiseTicket = async (req, res, next) => {
             status:            'open',
         });
 
+        // Auto-create the first chat message from the ticket description/question
+        const firstMessage = description || userQuestion || subject || '';
+        if (firstMessage.trim()) {
+            await TicketMessage.create({
+                ticketId:   ticket._id,
+                senderId:   req.user._id,
+                senderName: req.user.name,
+                senderRole: 'employee',
+                message:    firstMessage.trim(),
+                readBy:     [req.user._id],
+            });
+        }
+
         res.status(201).json({ statusCode: 201, success: true, data: ticket });
     } catch (error) {
         next(error);
@@ -232,7 +245,16 @@ const getMyTickets = async (req, res, next) => {
 
         const total = await Ticket.countDocuments(filter);
 
-        // Enrich with SLA data
+        // Get unread message counts (hrOps messages not read by employee)
+        const ticketIds = tickets.map(t => t._id);
+        const unreadCounts = await TicketMessage.aggregate([
+            { $match: { ticketId: { $in: ticketIds }, senderRole: 'hrOps', readBy: { $ne: req.user._id } } },
+            { $group: { _id: '$ticketId', count: { $sum: 1 } } },
+        ]);
+        const unreadMap = {};
+        for (const u of unreadCounts) unreadMap[u._id.toString()] = u.count;
+
+        // Enrich with SLA data + unread count
         const now = new Date();
         const enriched = tickets.map(t => {
             const dtc = t.theme?.daysToClosure || null;
@@ -244,7 +266,7 @@ const getMyTickets = async (req, res, next) => {
                 daysRemaining = Math.ceil((dueDate - now) / 86400000);
                 isOverdue = daysRemaining < 0 && t.status !== 'resolved';
             }
-            return { ...t, daysToClosure: dtc, dueDate, daysRemaining, isOverdue };
+            return { ...t, daysToClosure: dtc, dueDate, daysRemaining, isOverdue, unreadMessages: unreadMap[t._id.toString()] || 0 };
         });
 
         res.status(200).json({
@@ -293,6 +315,10 @@ const sendEmployeeTicketMessage = async (req, res, next) => {
         const ticket = await Ticket.findOne({ _id: id, userId: req.user._id }).lean();
         if (!ticket) { res.status(404); throw new Error('Ticket not found'); }
         if (ticket.status === 'resolved') { res.status(400); throw new Error('Cannot send message on a resolved ticket'); }
+
+        // Employee can only reply after HROps has sent at least one message
+        const hrOpsMessage = await TicketMessage.findOne({ ticketId: id, senderRole: 'hrOps' }).lean();
+        if (!hrOpsMessage) { res.status(400); throw new Error('You can reply once HROps responds to your ticket'); }
 
         let attachmentUrl = null;
         let attachmentType = null;

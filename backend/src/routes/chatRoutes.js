@@ -12,7 +12,7 @@ import {
     getEmployeeQuestionThemes
 } from '../controllers/chatController.js';
 import { submitFeedback, submitGeneralFeedback, raiseTicket, getMyTickets, getEmployeeTicketMessages, sendEmployeeTicketMessage } from '../controllers/feedbackController.js';
-import { evaluateTicket, evaluateIndependentTicket } from '../controllers/ticketController.js';
+import { evaluateTicket, evaluateIndependentTicket, generateTicketFields } from '../controllers/ticketController.js';
 import { protect } from '../middleware/authMiddleware.js';
 import uploadChatFile from '../middleware/uploadChat.js';
 
@@ -28,6 +28,7 @@ router.post('/feedback', protect, submitFeedback);
 router.post('/user-feedback', protect, submitGeneralFeedback);
 router.post('/evaluate-ticket', protect, evaluateTicket);
 router.post('/evaluate-independent-ticket', protect, evaluateIndependentTicket);
+router.post('/generate-ticket-fields', protect, generateTicketFields);
 router.post('/raise-ticket', protect, raiseTicket);
 router.get('/my-tickets', protect, getMyTickets);
 router.get('/tickets/:id/messages', protect, getEmployeeTicketMessages);

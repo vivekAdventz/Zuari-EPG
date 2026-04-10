@@ -4,7 +4,6 @@ import { useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import ChatArea from '../components/ChatArea';
 import MyTickets from '../components/MyTickets';
-import HrOpsDashboard from '../components/HrOpsDashboard';
 import CalendarModal from '../components/CalendarModal';
 import OnboardingModal from '../components/OnboardingModal';
 import PeriodicFeedbackModal from '../components/PeriodicFeedbackModal';
@@ -41,7 +40,7 @@ const EmployeeDashboard = () => {
     const [selectedPolicyTitle, setSelectedPolicyTitle] = useState(null);
     const [showOnboarding, setShowOnboarding] = useState(false);
     const [showPeriodicFeedback, setShowPeriodicFeedback] = useState(false);
-    const [currentView, setCurrentView] = useState('chat'); // 'chat' | 'tickets' | 'hrops'
+    const [currentView, setCurrentView] = useState('chat'); // 'chat' | 'tickets'
     const [initialFeedbackIds, setInitialFeedbackIds] = useState([]);
     const [initialTicketMap, setInitialTicketMap] = useState([]);
 
@@ -275,33 +274,30 @@ const EmployeeDashboard = () => {
 
                 {/* HROps / Employee toggle pill — only for HROps users */}
                 {isHrOps && (
-                    <button
-                        onClick={() => setCurrentView(currentView === 'hrops' ? 'chat' : 'hrops')}
-                        className={`fixed z-100 flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold
-                               shadow-lg backdrop-blur-md border transition-all hover:scale-105 active:scale-95
-                               ${isAlsoAdmin ? 'top-14 right-4' : 'top-4 right-4'}
-                               ${currentView === 'hrops'
-                                   ? 'bg-amber-500/90 hover:bg-amber-500 text-white border-white/10 shadow-amber-900/30'
-                                   : 'bg-blue-600/90 hover:bg-blue-600 text-white border-white/10 shadow-blue-900/30'
-                               }`}
-                        title={currentView === 'hrops' ? 'Switch to Employee View' : 'Switch to HROps Desk'}
+                    <div
+                        className={`fixed z-100 flex items-center gap-1 p-1 rounded-xl
+                               bg-black/30 backdrop-blur-md border border-white/10 shadow-lg
+                               ${isAlsoAdmin ? 'top-14 right-4' : 'top-4 right-4'}`}
                     >
-                        {currentView === 'hrops' ? (
-                            <>
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
-                                </svg>
-                                Employee View
-                            </>
-                        ) : (
-                            <>
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-                                </svg>
-                                HROps Desk
-                            </>
-                        )}
-                    </button>
+                        <button
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-white/90 text-gray-800 shadow-sm cursor-default"
+                        >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+                            </svg>
+                            Employee
+                        </button>
+                        <button
+                            onClick={() => navigate('/hrops/dashboard')}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white/70 hover:text-white hover:bg-white/10 transition-all"
+                            title="Switch to HROps Portal"
+                        >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" />
+                            </svg>
+                            HROps
+                        </button>
+                    </div>
                 )}
 
                 {/* Mobile Overlay */}
@@ -328,15 +324,12 @@ const EmployeeDashboard = () => {
                     onSelectPolicy={setSelectedPolicyTitle}
                     onOpenPoliciesModal={() => setIsPoliciesModalOpen(true)}
                     onOpenTickets={() => { setCurrentView('tickets'); if (window.innerWidth < 768) setIsSidebarOpen(false); }}
-                    onOpenHrOps={isHrOps ? () => { setCurrentView('hrops'); if (window.innerWidth < 768) setIsSidebarOpen(false); } : undefined}
                     currentView={currentView}
                 />
 
 
                 {currentView === 'tickets' ? (
                     <MyTickets onBack={() => setCurrentView('chat')} />
-                ) : currentView === 'hrops' ? (
-                    <HrOpsDashboard onBack={() => setCurrentView('chat')} />
                 ) : (
                     <ChatArea
                         messages={messages}
@@ -352,6 +345,7 @@ const EmployeeDashboard = () => {
                         availablePolicies={availablePolicies}
                         initialFeedbackIds={initialFeedbackIds}
                         initialTicketMap={initialTicketMap}
+                        onOpenTickets={() => { setCurrentView('tickets'); if (window.innerWidth < 768) setIsSidebarOpen(false); }}
                     />
                 )}
 

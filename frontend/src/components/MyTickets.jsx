@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { FiMessageCircle } from 'react-icons/fi';
-import { getMyTickets, raiseTicket as raiseTicketApi, getEmployeeQuestionThemes, evaluateIndependentTicket } from '../api';
+import { getMyTickets, raiseTicket as raiseTicketApi, getEmployeeQuestionThemes, evaluateIndependentTicket, generateTicketFields } from '../api';
 import TicketChatModal from './TicketChatModal';
 
 const STATUS_COLORS = {
@@ -98,14 +98,18 @@ const MyTickets = ({ onBack }) => {
     const [raiseError, setRaiseError] = useState('');
     const [raiseSuccess, setRaiseSuccess] = useState(null);
 
+    // AI field generation states
+    const [fieldsGenerated, setFieldsGenerated] = useState(false);
+    const [generatingFields, setGeneratingFields] = useState(false);
+
     // QA evaluation states
     const [qaModal, setQaModal] = useState(false);
     const [qaEvaluation, setQaEvaluation] = useState(null);
     const [qaEvaluating, setQaEvaluating] = useState(false);
     const [qaError, setQaError] = useState('');
 
-    const fetchTickets = async () => {
-        setLoading(true);
+    const fetchTickets = async (silent = false) => {
+        if (!silent) setLoading(true);
         try {
             const filters = {};
             if (statusFilter) filters.status = statusFilter;
@@ -117,11 +121,19 @@ const MyTickets = ({ onBack }) => {
         } catch (e) {
             console.error('Failed to fetch tickets:', e);
         } finally {
-            setLoading(false);
+            if (!silent) setLoading(false);
         }
     };
 
     useEffect(() => { fetchTickets(); }, [statusFilter, categoryFilter, startDate, endDate]);
+
+    // Poll tickets every 5 seconds for near real-time updates
+    useEffect(() => {
+        const interval = setInterval(() => {
+            fetchTickets(true);
+        }, 5000);
+        return () => clearInterval(interval);
+    }, [statusFilter, categoryFilter, startDate, endDate]);
 
     useEffect(() => {
         const loadCategories = async () => {
@@ -134,6 +146,27 @@ const MyTickets = ({ onBack }) => {
         };
         loadCategories();
     }, []);
+
+    const handleGenerateFields = async (e) => {
+        e.preventDefault();
+        if (!form.description.trim()) { setRaiseError('Description is required'); return; }
+        setRaiseError('');
+        setGeneratingFields(true);
+        try {
+            const fields = await generateTicketFields({ description: form.description });
+            setForm(f => ({
+                ...f,
+                subject: fields.subject || '',
+                categoryId: fields.categoryId || '',
+            }));
+            setFieldsGenerated(true);
+        } catch (err) {
+            setRaiseError(err.message || 'Failed to generate fields. Please fill them manually.');
+            setFieldsGenerated(true);
+        } finally {
+            setGeneratingFields(false);
+        }
+    };
 
     const handleRaiseSubmit = async (e) => {
         e.preventDefault();
@@ -187,6 +220,8 @@ const MyTickets = ({ onBack }) => {
         setRaiseSuccess(null);
         setRaiseError('');
         setForm({ subject: '', categoryId: '', description: '' });
+        setFieldsGenerated(false);
+        setGeneratingFields(false);
     };
 
     return (
@@ -237,40 +272,63 @@ const MyTickets = ({ onBack }) => {
                                         <button onClick={closeRaiseModal} className="px-5 py-2.5 rounded-xl bg-zuari-navy text-white text-sm font-bold hover:bg-[#122856] transition-all">
                                             Close
                                         </button>
-                                        <button onClick={() => { setRaiseSuccess(null); setForm({ subject: '', categoryId: '', description: '' }); }} className="px-5 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 text-sm font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-all">
+                                        <button onClick={() => { setRaiseSuccess(null); setForm({ subject: '', categoryId: '', description: '' }); setFieldsGenerated(false); }} className="px-5 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 text-sm font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-all">
                                             Raise Another
                                         </button>
                                     </div>
                                 </div>
-                            ) : (
-                                <form onSubmit={handleRaiseSubmit} className="space-y-4">
-                                    {/* Category */}
-                                    <div>
-                                        <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5 block">Category <span className="text-red-400">*</span></label>
-                                        <select
-                                            value={form.categoryId}
-                                            onChange={e => {
-                                                const catId = e.target.value;
-                                                const cat = categories.find(c => c._id === catId);
-                                                setForm(f => ({
-                                                    ...f,
-                                                    categoryId: catId,
-                                                    subject: cat ? `Query in ${cat.name}` : f.subject
-                                                }));
-                                            }}
-                                            required
-                                            className={`w-full rounded-xl border ${!form.categoryId && raiseError === 'Category is required' ? 'border-red-400 ring-2 ring-red-400/30' : 'border-gray-200 dark:border-slate-700'} bg-white dark:bg-slate-800 text-gray-800 dark:text-white text-sm p-3 outline-none focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400 transition-all`}
-                                        >
-                                            <option value="">Select a category</option>
-                                            {categories.map(cat => (
-                                                <option key={cat._id} value={cat._id}>{cat.name}</option>
-                                            ))}
-                                        </select>
+                            ) : !fieldsGenerated ? (
+                                <form onSubmit={handleGenerateFields} className="space-y-4">
+                                    {/* Description only - Step 1 */}
+                                    <div className="bg-blue-50/60 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-800/30 rounded-xl px-4 py-3">
+                                        <p className="text-xs font-semibold text-blue-600 dark:text-blue-400">Describe your issue and AI will auto-fill the other fields for you.</p>
                                     </div>
 
-                                    {/* Subject */}
                                     <div>
-                                        <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5 block">Subject <span className="text-red-400">*</span></label>
+                                        <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5 block">Description <span className="text-red-400">*</span></label>
+                                        <textarea
+                                            value={form.description}
+                                            onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+                                            placeholder="Describe your issue or request in detail..."
+                                            rows={5}
+                                            className="w-full rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-800 dark:text-white text-sm p-3 outline-none focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400 resize-none transition-all"
+                                        />
+                                    </div>
+
+                                    {raiseError && <p className="text-xs text-red-500">{raiseError}</p>}
+
+                                    <button
+                                        type="submit"
+                                        disabled={generatingFields}
+                                        className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-bold transition-all disabled:opacity-70 shadow-md flex items-center justify-center gap-2"
+                                    >
+                                        {generatingFields ? (
+                                            <>
+                                                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                                                Generating Fields...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                                                Generate Fields with AI
+                                            </>
+                                        )}
+                                    </button>
+                                </form>
+                            ) : (
+                                <form onSubmit={handleRaiseSubmit} className="space-y-4">
+                                    {/* Description (read-only summary) */}
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5 block">Description</label>
+                                        <div className="bg-gray-50 dark:bg-slate-800 rounded-xl px-4 py-3 text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap max-h-24 overflow-y-auto custom-scrollbar">{form.description}</div>
+                                    </div>
+
+                                    {/* AI-generated: Subject (editable) */}
+                                    <div>
+                                        <div className="flex items-center gap-2 mb-1.5">
+                                            <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Subject <span className="text-red-400">*</span></label>
+                                            <span className="text-[10px] font-semibold text-amber-500 bg-amber-50 dark:bg-amber-900/20 px-1.5 py-0.5 rounded">AI Generated</span>
+                                        </div>
                                         <input
                                             type="text"
                                             value={form.subject}
@@ -281,27 +339,43 @@ const MyTickets = ({ onBack }) => {
                                         />
                                     </div>
 
-                                    {/* Description */}
+                                    {/* AI-generated: Category (editable) */}
                                     <div>
-                                        <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5 block">Description <span className="text-red-400">*</span></label>
-                                        <textarea
-                                            value={form.description}
-                                            onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-                                            placeholder="Provide more details about your issue or request..."
-                                            rows={4}
-                                            className="w-full rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-800 dark:text-white text-sm p-3 outline-none focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400 resize-none transition-all"
-                                        />
+                                        <div className="flex items-center gap-2 mb-1.5">
+                                            <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Category <span className="text-red-400">*</span></label>
+                                            <span className="text-[10px] font-semibold text-amber-500 bg-amber-50 dark:bg-amber-900/20 px-1.5 py-0.5 rounded">AI Generated</span>
+                                        </div>
+                                        <select
+                                            value={form.categoryId}
+                                            onChange={e => setForm(f => ({ ...f, categoryId: e.target.value }))}
+                                            required
+                                            className={`w-full rounded-xl border ${!form.categoryId && raiseError === 'Category is required' ? 'border-red-400 ring-2 ring-red-400/30' : 'border-gray-200 dark:border-slate-700'} bg-white dark:bg-slate-800 text-gray-800 dark:text-white text-sm p-3 outline-none focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400 transition-all`}
+                                        >
+                                            <option value="">Select a category</option>
+                                            {categories.map(cat => (
+                                                <option key={cat._id} value={cat._id}>{cat.name}</option>
+                                            ))}
+                                        </select>
                                     </div>
 
                                     {raiseError && <p className="text-xs text-red-500">{raiseError}</p>}
 
-                                    <button
-                                        type="submit"
-                                        disabled={raising}
-                                        className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-bold transition-all disabled:opacity-70 shadow-md"
-                                    >
-                                        {raising ? 'Submitting...' : 'Submit Ticket'}
-                                    </button>
+                                    <div className="flex gap-3">
+                                        <button
+                                            type="button"
+                                            onClick={() => { setFieldsGenerated(false); setRaiseError(''); }}
+                                            className="flex-1 py-3 rounded-xl border border-gray-200 dark:border-slate-700 text-sm font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-all"
+                                        >
+                                            Back
+                                        </button>
+                                        <button
+                                            type="submit"
+                                            disabled={raising}
+                                            className="flex-1 py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-bold transition-all disabled:opacity-70 shadow-md"
+                                        >
+                                            {raising ? 'Submitting...' : 'Submit Ticket'}
+                                        </button>
+                                    </div>
                                 </form>
                             )}
                         </div>
@@ -497,7 +571,6 @@ const MyTickets = ({ onBack }) => {
                                                     <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Raised On</th>
                                                     <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Closure</th>
                                                     <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Messages</th>
-                                                    <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Action</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -559,26 +632,15 @@ const MyTickets = ({ onBack }) => {
                                                         <td className="px-6 py-4 text-center whitespace-nowrap">
                                                             <button
                                                                 onClick={() => setChatTicket(ticket)}
-                                                                disabled={!(ticket.hrResponse || ticket.status === 'hold')}
-                                                                className={`relative p-2 rounded-xl transition-all ${
-                                                                    (ticket.hrResponse || ticket.status === 'hold')
-                                                                        ? 'text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/40 cursor-pointer' 
-                                                                        : 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
-                                                                }`}
-                                                                title={(ticket.hrResponse || ticket.status === 'hold') ? 'Open Chat' : 'Chat available after HR replies'}
+                                                                className="relative p-2 rounded-xl transition-all text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/40 cursor-pointer"
+                                                                title="Open Chat"
                                                             >
                                                                 <FiMessageCircle size={20} />
                                                                 {ticket.unreadMessages > 0 && (
-                                                                    <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white dark:border-slate-800"></span>
+                                                                    <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] flex items-center justify-center bg-red-500 text-white text-[10px] font-bold rounded-full px-1 border-2 border-white dark:border-slate-800">
+                                                                        {ticket.unreadMessages > 99 ? '99+' : ticket.unreadMessages}
+                                                                    </span>
                                                                 )}
-                                                            </button>
-                                                        </td>
-                                                        <td className="px-6 py-4 text-right whitespace-nowrap">
-                                                            <button
-                                                                onClick={() => setSelectedTicket(ticket)}
-                                                                className="p-2 text-gray-400 hover:text-zuari-navy hover:bg-blue-50 dark:hover:bg-slate-800 rounded-xl transition-all"
-                                                            >
-                                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
                                                             </button>
                                                         </td>
                                                     </tr>

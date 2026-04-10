@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import toast from 'react-hot-toast';
 import DOMPurify from 'dompurify';
 import { FiMessageCircle } from 'react-icons/fi';
@@ -172,8 +172,10 @@ const HrOpsDashboard = ({ onBack }) => {
     const [page, setPage] = useState(1);
     const limit = 15;
 
+    const silentPollRef = useRef(false);
+
     const fetchTickets = useCallback(async () => {
-        setLoading(true);
+        if (!silentPollRef.current) setLoading(true);
         try {
             const filters = { page, limit };
             if (statusFilter) filters.status = statusFilter;
@@ -184,13 +186,23 @@ const HrOpsDashboard = ({ onBack }) => {
             setTickets(res.data || []);
             setTotal(res.total || 0);
         } catch (err) {
-            toast.error(err.message || 'Failed to fetch tickets');
+            if (!silentPollRef.current) toast.error(err.message || 'Failed to fetch tickets');
         } finally {
-            setLoading(false);
+            if (!silentPollRef.current) setLoading(false);
+            silentPollRef.current = false;
         }
     }, [statusFilter, categoryFilter, startDate, endDate, page]);
 
     useEffect(() => { fetchTickets(); }, [fetchTickets]);
+
+    // Poll tickets every 5 seconds for near real-time updates
+    useEffect(() => {
+        const interval = setInterval(() => {
+            silentPollRef.current = true;
+            fetchTickets();
+        }, 5000);
+        return () => clearInterval(interval);
+    }, [fetchTickets]);
 
     useEffect(() => {
         const loadCategories = async () => {

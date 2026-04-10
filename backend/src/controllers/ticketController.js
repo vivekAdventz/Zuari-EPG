@@ -1,4 +1,5 @@
 import aiService from '../services/aiService.js';
+import QuestionTheme from '../models/QuestionTheme.js';
 
 // POST /api/chat/evaluate-ticket
 // Uses Gemini Flash 2.5 to evaluate whether raising a ticket is necessary
@@ -57,4 +58,33 @@ const evaluateIndependentTicket = async (req, res, next) => {
     }
 };
 
-export { evaluateTicket, evaluateIndependentTicket };
+// POST /api/chat/generate-ticket-fields
+// AI generates subject & category from a plain description
+const generateTicketFields = async (req, res, next) => {
+    try {
+        const { description } = req.body;
+
+        if (!description || !description.trim()) {
+            res.status(400);
+            throw new Error('description is required');
+        }
+
+        const categories = await QuestionTheme.find({}).lean();
+
+        const fields = await aiService.generateTicketFields(
+            description.trim(),
+            categories,
+            req.user
+        );
+
+        res.status(200).json({
+            statusCode: 200,
+            success: true,
+            data: fields,
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+export { evaluateTicket, evaluateIndependentTicket, generateTicketFields };

@@ -21,7 +21,6 @@ const Sidebar = ({
     onOpenPoliciesModal,
     onOpenTickets,
     currentView = 'chat',
-    onOpenHrOps,
 }) => {
     const [isPoliciesModalOpen, setIsPoliciesModalOpen] = useState(false);
 
@@ -60,16 +59,7 @@ const Sidebar = ({
                     Tickets
                 </button>
 
-                {/* HROps Dashboard — only for HROps users */}
-                {onOpenHrOps && (
-                    <button
-                        onClick={onOpenHrOps}
-                        className={`w-full flex items-center gap-2.5 mt-2 py-2.5 px-3 rounded-xl text-sm font-bold transition-all group active:scale-[0.98] ${currentView === 'hrops' ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800/30 shadow-sm' : 'bg-gray-50 dark:bg-slate-800/60 text-gray-600 dark:text-gray-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:text-blue-700 dark:hover:text-blue-400 border border-transparent'}`}
-                    >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                        HROps Desk
-                    </button>
-                )}
+
             </div>
 
             <div className="flex-1 overflow-y-auto px-4 space-y-6 custom-scrollbar">

@@ -46,7 +46,7 @@ const logApiUsage = async (response, operation, modelName = "gemini-2.5-flash", 
 
 const FALLBACK_MODELS = {
     'gemini-2.5-pro': 'gemini-2.5-flash',
-    'gemini-2.5-flash': 'gemini-2.5-flash',
+    'gemini-2.5-flash': 'gemini-2.5-pro',
 };
 
 const isHighDemandError = (err) => {
@@ -696,6 +696,101 @@ IMPORTANT: If the query genuinely requires human HR intervention, ALWAYS mark ne
     }
 };
 
+/**
+ * Generate ticket fields (subject, category) from a plain description using AI.
+ * @param {string} description – the employee's free-text description
+ * @param {Array}  categories  – available QuestionTheme objects [{_id, name, description}, …]
+ * @param {Object} user        – authenticated user object
+ * @returns {{ subject: string, categoryId: string, categoryName: string }}
+ */
+const generateTicketFields = async (description, categories, user) => {
+    try {
+        if (!config.GEMINI_API_KEY) {
+            return { subject: '', categoryId: '', categoryName: '' };
+        }
+
+        // Build a list of valid categories for the prompt
+        const categoryList = categories.map(c => `ID: ${c._id} | Name: ${c.name} | Description: ${c.description || ''}`).join('\n');
+
+        // Search policies so the model has domain context
+        let policyContext = '';
+        if (user && description) {
+            try {
+                const searchResults = await searchPolicy(description, user, null, 15);
+                if (searchResults.length > 0) {
+                    policyContext = searchResults.map(r =>
+                        `--- POLICY: ${r.policy} ---\n${r.content}\n--- END ---`
+                    ).join('\n');
+                }
+            } catch (searchErr) {
+                console.error('Policy search for generateTicketFields failed:', searchErr);
+            }
+        }
+
+        const userContent = [
+            `EMPLOYEE DESCRIPTION:\n${description}`,
+            policyContext ? `RELEVANT POLICY EXCERPTS:\n${policyContext}` : '',
+            `AVAILABLE CATEGORIES:\n${categoryList}`
+        ].filter(Boolean).join('\n\n');
+
+        const { response, modelUsed } = await callGeminiWithFallback({
+            model: 'gemini-2.5-flash',
+            contents: [{ role: 'user', parts: [{ text: userContent }] }],
+            config: {
+                systemInstruction: `You are an HR ticket assistant. An employee has written a description of their issue. Based on the description and available HR policy context, generate the following fields for the ticket:
+
+1. **subject** – A concise, clear summary of the issue (max 120 characters). Should be specific and actionable.
+2. **categoryId** – The ID of the most appropriate category from the AVAILABLE CATEGORIES list.
+3. **categoryName** – The name of the chosen category.
+
+Rules:
+- The subject should capture the core issue in a short phrase.
+- Pick the single best matching category. If none fit well, pick "Other / Unclassified".
+- Use ONLY category IDs from the provided list.
+
+Return ONLY valid JSON:
+{
+  "subject": "...",
+  "categoryId": "...",
+  "categoryName": "..."
+}`,
+                temperature: 0.3,
+                maxOutputTokens: 256,
+                thinkingConfig: { thinkingBudget: 0 }
+            }
+        });
+
+        await logApiUsage(response, 'generate_ticket_fields', modelUsed, user?._id);
+
+        let text = '';
+        try {
+            text = (typeof response.text === 'function' ? response.text() : response.text) || '';
+        } catch (_) {
+            if (response.candidates?.[0]?.content?.parts) {
+                text = response.candidates[0].content.parts
+                    .filter(p => p.text)
+                    .map(p => p.text)
+                    .join('');
+            }
+        }
+        if (!text) return { subject: '', categoryId: '', categoryName: '' };
+
+        const first = text.indexOf('{');
+        const last = text.lastIndexOf('}');
+        if (first === -1 || last === -1) return { subject: '', categoryId: '', categoryName: '' };
+
+        const parsed = JSON.parse(text.substring(first, last + 1));
+        return {
+            subject: parsed.subject || '',
+            categoryId: parsed.categoryId || '',
+            categoryName: parsed.categoryName || ''
+        };
+    } catch (err) {
+        console.error('generateTicketFields error:', err);
+        return { subject: '', categoryId: '', categoryName: '' };
+    }
+};
+
 export default {
     generateAIResponse,
     generateDynamicFAQs,
@@ -703,5 +798,6 @@ export default {
     clusterDemandGaps,
     generateThemesFromPolicies,
     evaluateTicketNecessity,
-    evaluateIndependentTicket
+    evaluateIndependentTicket,
+    generateTicketFields
 };

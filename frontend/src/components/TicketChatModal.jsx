@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FiX, FiSend, FiPaperclip, FiFileText, FiImage, FiFile, FiDownload, FiMaximize2, FiEye } from 'react-icons/fi';
-import { getEmployeeTicketMessages, sendEmployeeTicketMessage, getHrOpsTicketMessages, sendHrOpsTicketMessage, getAuthHeaders } from '../api';
+import { FiX, FiSend, FiPaperclip, FiFileText, FiImage, FiFile, FiDownload, FiMaximize2, FiEye, FiCalendar, FiTag, FiHash, FiCheckCircle } from 'react-icons/fi';
+import toast from 'react-hot-toast';
+import { getEmployeeTicketMessages, sendEmployeeTicketMessage, getHrOpsTicketMessages, sendHrOpsTicketMessage, updateAssignedTicket, getAuthHeaders } from '../api';
 
 const API_URL = import.meta.env.VITE_BACKEND_URL || "";
 
@@ -203,7 +204,12 @@ const TicketChatModal = ({ ticket, onClose, userRole }) => {
     const messagesEndRef = useRef(null);
     const fileInputRef = useRef(null);
 
+    // HROps ticket detail state
+    const [ticketStatus, setTicketStatus] = useState(ticket.status);
+    const [saving, setSaving] = useState(false);
+
     const isEmployee = userRole === 'employee';
+    const isHrOps = userRole === 'hrOps';
 
     const fetchMessages = async () => {
         try {
@@ -238,6 +244,10 @@ const TicketChatModal = ({ ticket, onClose, userRole }) => {
         ? messages.slice(messages.lastIndexOf(lastHrRequest) + 1).find(m => m.senderRole === 'employee')
         : null;
     const isUploadPending = isEmployee && lastHrRequest && !lastEmployeeMsgAfterUploadRequest;
+
+    // Employee can only chat after HROps has replied at least once
+    const hrOpsHasReplied = messages.some(m => m.senderRole === 'hrOps');
+    const employeeChatDisabled = isEmployee && !hrOpsHasReplied;
 
     const handleSendUploadRequest = async (type) => {
         if (sending) return;
@@ -291,6 +301,18 @@ const TicketChatModal = ({ ticket, onClose, userRole }) => {
         setAttachment(file);
     };
 
+    const handleSaveTicket = async () => {
+        setSaving(true);
+        try {
+            await updateAssignedTicket(ticket._id, { status: ticketStatus });
+            toast.success('Ticket status updated');
+        } catch (e) {
+            toast.error(e.message || 'Failed to update ticket');
+        } finally {
+            setSaving(false);
+        }
+    };
+
     const getFullImageUrl = (url) => {
         if (!url) return '';
         
@@ -304,9 +326,152 @@ const TicketChatModal = ({ ticket, onClose, userRole }) => {
         return `${API_URL}${secureUrl}`;
     };
 
+    const STATUS_META = {
+        open:     { label: 'Open',     cls: 'bg-blue-100 text-blue-700', dot: 'bg-blue-500' },
+        hold:     { label: 'Hold',     cls: 'bg-amber-100 text-amber-700', dot: 'bg-amber-500' },
+        resolved: { label: 'Resolved', cls: 'bg-green-100 text-green-700', dot: 'bg-green-500' },
+    };
+
+    // ─── Ticket Detail Panel (Left side) ────────────────────────
+    const TicketDetailPanel = () => (
+        <div className="w-[380px] shrink-0 border-r border-gray-100 flex flex-col h-full bg-white overflow-hidden">
+            {/* Ticket Header */}
+            <div className="px-5 pt-5 pb-4 border-b border-gray-100">
+                <div className="flex items-center gap-2 mb-2">
+                    <span className="font-mono text-sm font-black text-indigo-600">{ticket.ticketNumber}</span>
+                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold ${STATUS_META[ticketStatus]?.cls || STATUS_META.open.cls}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${STATUS_META[ticketStatus]?.dot || STATUS_META.open.dot}`} />
+                        {STATUS_META[ticketStatus]?.label || 'Open'}
+                    </span>
+                </div>
+                <h3 className="font-bold text-gray-900 text-sm leading-snug">
+                    {ticket.subject || ticket.userQuestion || 'No subject'}
+                </h3>
+            </div>
+
+            {/* Scrollable Details */}
+            <div className="flex-1 overflow-y-auto custom-scrollbar">
+                {/* Employee Info (HROps only) */}
+                {isHrOps && (
+                <div className="px-5 py-4 border-b border-gray-50">
+                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Employee Details</p>
+                    <div className="flex items-center gap-3 mb-3">
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center text-white text-sm font-bold shadow-md shrink-0">
+                            {ticket.userName?.charAt(0) || '?'}
+                        </div>
+                        <div>
+                            <p className="font-bold text-gray-900 text-sm">{ticket.userName}</p>
+                            <p className="text-xs text-gray-400">{ticket.userEmail}</p>
+                        </div>
+                    </div>
+                    <div className="space-y-2">
+                        {ticket.userEntity && (
+                            <div className="flex items-center gap-2 text-xs text-gray-500">
+                                <FiTag size={12} className="text-gray-400 shrink-0" />
+                                <span className="font-medium">Entity:</span>
+                                <span className="text-gray-700 font-semibold">{ticket.userEntity}</span>
+                            </div>
+                        )}
+                        <div className="flex items-center gap-2 text-xs text-gray-500">
+                            <FiHash size={12} className="text-gray-400 shrink-0" />
+                            <span className="font-medium">Theme:</span>
+                            <span className="text-gray-700 font-semibold">{ticket.themeName}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-gray-500">
+                            <FiCalendar size={12} className="text-gray-400 shrink-0" />
+                            <span className="font-medium">Created:</span>
+                            <span className="text-gray-700 font-semibold">{new Date(ticket.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                        </div>
+                    </div>
+                </div>
+                )}
+
+                {/* Ticket Info (Employee view) */}
+                {isEmployee && (
+                <div className="px-5 py-4 border-b border-gray-50">
+                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Ticket Info</p>
+                    <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-xs text-gray-500">
+                            <FiHash size={12} className="text-gray-400 shrink-0" />
+                            <span className="font-medium">Theme:</span>
+                            <span className="text-gray-700 font-semibold">{ticket.themeName}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-gray-500">
+                            <FiCalendar size={12} className="text-gray-400 shrink-0" />
+                            <span className="font-medium">Created:</span>
+                            <span className="text-gray-700 font-semibold">{new Date(ticket.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                        </div>
+                    </div>
+                </div>
+                )}
+
+                {/* Question */}
+                {ticket.userQuestion && (
+                    <div className="px-5 py-4 border-b border-gray-50">
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">{isEmployee ? 'Your Question' : 'Employee Question'}</p>
+                        <p className="text-sm text-gray-700 bg-gray-50 rounded-xl px-3.5 py-2.5 leading-relaxed">{ticket.userQuestion}</p>
+                    </div>
+                )}
+
+                {/* AI Response */}
+                {ticket.aiResponse && (
+                    <div className="px-5 py-4 border-b border-gray-50">
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">AI Response</p>
+                        <p className="text-sm text-gray-600 bg-blue-50/50 rounded-xl px-3.5 py-2.5 leading-relaxed max-h-32 overflow-y-auto custom-scrollbar">{ticket.aiResponse}</p>
+                    </div>
+                )}
+
+                {/* Description */}
+                {ticket.description && (
+                    <div className="px-5 py-4 border-b border-gray-50">
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Description</p>
+                        <p className="text-sm text-gray-700 bg-gray-50 rounded-xl px-3.5 py-2.5 whitespace-pre-wrap leading-relaxed">{ticket.description}</p>
+                    </div>
+                )}
+
+                {/* Status Update (HROps only) */}
+                {isHrOps && (
+                    <div className="px-5 py-4 space-y-3">
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Update Status</p>
+                        <div>
+                            <select
+                                value={ticketStatus}
+                                onChange={e => setTicketStatus(e.target.value)}
+                                className="w-full rounded-xl border border-gray-200 bg-gray-50 text-sm p-2.5 outline-none focus:ring-2 focus:ring-indigo-400/30 text-gray-800 transition-all"
+                            >
+                                <option value="open">Open</option>
+                                <option value="hold">Hold</option>
+                                <option value="resolved">Resolved</option>
+                            </select>
+                        </div>
+                        <button
+                            onClick={handleSaveTicket}
+                            disabled={saving || ticketStatus === ticket.status}
+                            className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                        >
+                            <FiCheckCircle size={14} />
+                            {saving ? 'Saving...' : 'Update Status'}
+                        </button>
+                    </div>
+                )}
+
+                {/* Status display (Employee only) */}
+                {isEmployee && (
+                    <div className="px-5 py-4">
+                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Status</p>
+                        <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold ${STATUS_META[ticketStatus]?.cls || STATUS_META.open.cls}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${STATUS_META[ticketStatus]?.dot || STATUS_META.open.dot}`} />
+                            {STATUS_META[ticketStatus]?.label || 'Open'}
+                        </span>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+
     return (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl flex flex-col h-[80vh]">
+            <div className="bg-white rounded-xl shadow-2xl flex flex-col h-[85vh] w-full max-w-5xl">
                 {/* Header */}
                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
                     <div>
@@ -322,6 +487,14 @@ const TicketChatModal = ({ ticket, onClose, userRole }) => {
                         <FiX size={24} />
                     </button>
                 </div>
+
+                {/* Body: side-by-side layout */}
+                <div className="flex-1 flex overflow-hidden">
+                    {/* Left: Ticket details */}
+                    <TicketDetailPanel />
+
+                    {/* Right: Chat area */}
+                    <div className="flex-1 flex flex-col min-w-0">
 
                 {/* Messages Area */}
                 <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-gray-50">
@@ -402,8 +575,15 @@ const TicketChatModal = ({ ticket, onClose, userRole }) => {
 
                 {/* Input Area */}
                 <div className="p-4 border-t border-gray-100 bg-white flex-shrink-0">
-                    {/* Active Upload Request View (Employee Only) */}
-                    {isUploadPending ? (
+                    {/* Employee waiting for HROps first reply */}
+                    {employeeChatDisabled && !isUploadPending ? (
+                        <div className="flex items-center justify-center py-4 px-3 bg-amber-50 border border-amber-200 rounded-xl">
+                            <div className="flex items-center gap-3">
+                                <div className="w-2 h-2 bg-amber-400 rounded-full animate-pulse" />
+                                <p className="text-sm font-medium text-amber-700">Waiting for HROps to respond. You'll be able to reply once they do.</p>
+                            </div>
+                        </div>
+                    ) : isUploadPending ? (
                         <div className="flex flex-col items-center justify-center border-2 border-dashed border-indigo-200 rounded-xl p-6 bg-indigo-50/50">
                             <p className="text-sm font-bold text-indigo-700 mb-4">{lastHrRequest.message || "Please upload required file for further conversations."}</p>
                             
@@ -525,6 +705,8 @@ const TicketChatModal = ({ ticket, onClose, userRole }) => {
                         </p>
                     )}
                 </div>
+                    </div>{/* end chat column */}
+                </div>{/* end flex row */}
 
                 {/* Preview Modal */}
                 {previewFile && (

@@ -774,6 +774,17 @@ export const evaluateIndependentTicket = async ({ subject, description }) => {
     return data.data;
 };
 
+export const generateTicketFields = async ({ description }) => {
+    const response = await fetch(`${API_URL}/api/chat/generate-ticket-fields`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ description }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Failed to generate ticket fields');
+    return data.data;
+};
+
 export const getMyTickets = async (filters = {}) => {
     const queryParams = new URLSearchParams(filters).toString();
     const response = await fetch(`${API_URL}/api/chat/my-tickets?${queryParams}`, {

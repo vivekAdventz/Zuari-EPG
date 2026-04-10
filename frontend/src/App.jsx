@@ -22,6 +22,7 @@ import AdminFeedbackAnalysis from './pages/admin/AdminFeedbackAnalysis';
 import AdminHrOps from './pages/admin/AdminHrOps';
 import HrOpsLayout from './pages/hrops/HrOpsLayout';
 import HrOpsDashboard from './pages/hrops/HrOpsDashboard';
+import HrOpsOverview from './pages/hrops/HrOpsOverview';
 import Playground from './pages/Playground';
 import AuthCallback from './pages/AuthCallback';
 import SuperAdminLogin from './pages/superadmin/SuperAdminLogin';
@@ -61,9 +62,9 @@ const EmployeeRoute = ({ children }) => {
     if (user.roles?.includes('superAdmin')) return <Navigate to="/super-admin/dashboard" replace />;
     if (user.roles?.includes('admin')) return <Navigate to="/admin/dashboard" replace />;
   }
-  // Pure hrOps (no employee role) → redirect to hrOps portal
+  // Pure hrOps (no employee role) → redirect to hrOps dashboard
   if (!user.roles?.includes('employee') && user.roles?.includes('hrOps')) {
-    return <Navigate to="/hrops/tickets" replace />;
+    return <Navigate to="/hrops/dashboard" replace />;
   }
 
   return children;
@@ -147,7 +148,8 @@ function App() {
             <HrOpsLayout />
           </HrOpsRoute>
         }>
-          <Route index element={<Navigate to="tickets" replace />} />
+          <Route index element={<Navigate to="dashboard" replace />} />
+          <Route path="dashboard" element={<HrOpsOverview />} />
           <Route path="tickets" element={<HrOpsDashboard />} />
         </Route>
 
