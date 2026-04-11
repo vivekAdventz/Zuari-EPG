@@ -186,12 +186,10 @@ const AdminHrOps = () => {
                                                         {/* Remove */}
                                                         <button
                                                             onClick={() => handleUnassign(theme._id, u._id)}
-                                                            className="shrink-0 p-1 rounded-lg text-gray-300 dark:text-slate-600 hover:text-red-400 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all opacity-0 group-hover:opacity-100"
+                                                            className="shrink-0 px-2 py-1 rounded-lg text-xs font-semibold text-red-500 dark:text-red-400 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/40 border border-red-200 dark:border-red-800/40 transition-all"
                                                             title="Remove from this category"
                                                         >
-                                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                                                            </svg>
+                                                            Remove
                                                         </button>
                                                     </div>
                                                 ))}
