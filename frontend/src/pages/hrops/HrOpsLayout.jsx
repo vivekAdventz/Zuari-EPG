@@ -68,18 +68,6 @@ const HrOpsLayout = () => {
                         {isSidebarOpen && <span className="font-semibold text-sm">Dashboard</span>}
                     </button>
 
-                    {/* Ticket Console */}
-                    <button
-                        onClick={() => navigate('/hrops/tickets')}
-                        className={`w-full flex items-center gap-4 px-4 py-3.5 rounded-xl transition-all ${
-                            location.pathname === '/hrops/tickets'
-                                ? 'bg-blue-600 shadow-md text-white'
-                                : 'text-blue-100 hover:bg-white/10 dark:text-slate-400 dark:hover:bg-white/5 dark:hover:text-white'
-                        }`}
-                    >
-                        <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
-                        {isSidebarOpen && <span className="font-semibold text-sm">Ticket Console</span>}
-                    </button>
                 </nav>
 
                 {/* Footer */}

@@ -21,7 +21,6 @@ import SuperAdminApiCost from './pages/superadmin/SuperAdminApiCost';
 import AdminFeedbackAnalysis from './pages/admin/AdminFeedbackAnalysis';
 import AdminHrOps from './pages/admin/AdminHrOps';
 import HrOpsLayout from './pages/hrops/HrOpsLayout';
-import HrOpsDashboard from './pages/hrops/HrOpsDashboard';
 import HrOpsOverview from './pages/hrops/HrOpsOverview';
 import Playground from './pages/Playground';
 import AuthCallback from './pages/AuthCallback';
@@ -150,7 +149,6 @@ function App() {
         }>
           <Route index element={<Navigate to="dashboard" replace />} />
           <Route path="dashboard" element={<HrOpsOverview />} />
-          <Route path="tickets" element={<HrOpsDashboard />} />
         </Route>
 
         {/* Super Admin Routes */}
