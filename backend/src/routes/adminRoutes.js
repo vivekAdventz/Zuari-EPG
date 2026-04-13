@@ -28,6 +28,8 @@ import {
     unassignHrOps,
     toggleHrOpsUserStatus,
     updateThemeClosure,
+    getGlobalTicketStats,
+    getGlobalTickets,
 } from '../controllers/adminController.js';
 
 import { handlePlaygroundChat, handlePlaygroundReset } from '../controllers/playground/playgroundController.js';
@@ -189,5 +191,9 @@ router.patch('/hrops/closure', protect, admin, updateThemeClosure);
 // Feedback
 router.get('/feedbacks/queries', protect, admin, getQueryFeedbacks);
 router.get('/feedbacks/users', protect, admin, getUserFeedbacks);
+
+// Ticket Monitor (Admin View)
+router.get('/tickets/stats', protect, admin, getGlobalTicketStats);
+router.get('/tickets', protect, admin, getGlobalTickets);
 
 export default router;

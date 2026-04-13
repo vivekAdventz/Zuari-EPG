@@ -16,6 +16,8 @@ import { fileURLToPath } from 'url';
 import authService from '../services/authService.js';
 import FAQ from '../models/FAQ.js';
 import aiService from '../services/aiService.js';
+import Ticket from '../models/Ticket.js';
+import TicketMessage from '../models/TicketMessage.js';
 
 
 // @desc    Get Admin Dashboard Statistics
@@ -1129,6 +1131,141 @@ const updateThemeClosure = async (req, res, next) => {
     }
 };
 
+// @desc    Get Global Ticket Stats (Admin)
+// @route   GET /api/admin/tickets/stats
+// @access  Private/Admin
+const getGlobalTicketStats = async (req, res, next) => {
+    try {
+        const now = new Date();
+        const lastWeek = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+        const getStatsForDate = async (targetDate) => {
+            const tickets = await Ticket.find({ createdAt: { $lte: targetDate } })
+                .populate('theme', 'daysToClosure').lean();
+
+            const total = tickets.length;
+            const activeCount = tickets.filter(t => ['open', 'hold'].includes(t.status)).length;
+            const resolvedCount = tickets.filter(t => t.status === 'resolved').length;
+            const resRate = total > 0 ? (resolvedCount / total) * 100 : 0;
+
+            let slaFailures = 0;
+            let backlog = 0;
+
+            tickets.forEach(t => {
+                const slaDays = t.theme?.daysToClosure || 2;
+                const slaMs = slaDays * 24 * 60 * 60 * 1000;
+                const isOverdue = (targetDate - new Date(t.createdAt)) > slaMs;
+
+                if (isOverdue) {
+                    if (t.status !== 'resolved') {
+                        backlog++;
+                    } else if (new Date(t.updatedAt) - new Date(t.createdAt) > slaMs) {
+                        slaFailures++;
+                    }
+                }
+            });
+
+            return { total, activeCount, resRate, slaFailures, backlog };
+        };
+
+        const current = await getStatsForDate(now);
+        const previous = await getStatsForDate(lastWeek);
+
+        const calculateChange = (curr, prev) => {
+            if (prev === 0) return curr > 0 ? 100 : 0;
+            return ((curr - prev) / prev) * 100;
+        };
+
+        const data = {
+            totalTickets: {
+                value: current.total,
+                change: calculateChange(current.total, previous.total)
+            },
+            activeTickets: {
+                value: current.activeCount,
+                change: calculateChange(current.activeCount, previous.activeCount)
+            },
+            resolutionRate: {
+                value: current.resRate.toFixed(1) + '%',
+                change: calculateChange(current.resRate, previous.resRate)
+            },
+            slaCompliance: {
+                value: current.slaFailures,
+                change: calculateChange(current.slaFailures, previous.slaFailures)
+            },
+            backlog: {
+                value: current.backlog,
+                change: calculateChange(current.backlog, previous.backlog)
+            }
+        };
+
+        res.status(200).json({ statusCode: 200, success: true, data });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// @desc    Get Global Tickets with filters (Admin)
+// @route   GET /api/admin/tickets
+// @access  Private/Admin
+const getGlobalTickets = async (req, res, next) => {
+    try {
+        const { status, theme, hropsId, page = 1, limit = 10 } = req.query;
+        const filter = {};
+
+        if (status) filter.status = status;
+
+        // If filtering by HROps user, resolve their assigned themes
+        if (hropsId) {
+            const hropsUser = await User.findById(hropsId).select('assignedThemes').lean();
+            if (hropsUser && hropsUser.assignedThemes?.length > 0) {
+                filter.theme = theme ? theme : { $in: hropsUser.assignedThemes };
+            } else {
+                return res.status(200).json({ statusCode: 200, success: true, data: [], total: 0, page: 1, pages: 0 });
+            }
+        } else if (theme) {
+            filter.theme = theme;
+        }
+
+        const [tickets, total, allHrOpsUsers] = await Promise.all([
+            Ticket.find(filter)
+                .populate('userId', 'name email')
+                .populate('theme', 'daysToClosure name')
+                .sort({ createdAt: -1 })
+                .skip((page - 1) * Number(limit))
+                .limit(Number(limit))
+                .lean(),
+            Ticket.countDocuments(filter),
+            User.find({ roles: 'hrOps' }).select('name email assignedThemes').lean(),
+        ]);
+
+        // Build theme → hrOps user map for fast lookup
+        const themeToHrOps = {};
+        allHrOpsUsers.forEach(u => {
+            u.assignedThemes.forEach(themeId => {
+                themeToHrOps[themeId.toString()] = { _id: u._id, name: u.name, email: u.email };
+            });
+        });
+
+        // Attach hrOpsPoc to every ticket
+        const enriched = tickets.map(t => ({
+            ...t,
+            hrOpsPoc: themeToHrOps[t.theme?._id?.toString()] || null,
+        }));
+
+        res.status(200).json({
+            statusCode: 200,
+            success: true,
+            data: enriched,
+            total,
+            page: Number(page),
+            pages: Math.ceil(total / Number(limit)),
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
 export {
     getDashboardStats,
     getUsers,
@@ -1156,4 +1293,6 @@ export {
     unassignHrOps,
     toggleHrOpsUserStatus,
     updateThemeClosure,
+    getGlobalTicketStats,
+    getGlobalTickets
 };

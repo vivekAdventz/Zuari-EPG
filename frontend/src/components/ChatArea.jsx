@@ -189,7 +189,11 @@ const TicketQAModal = ({ evaluation, evaluating, error, onProceed, onClose }) =>
                                 <p className={`text-sm font-bold ${evaluation.necessary ? 'text-amber-700 dark:text-amber-400' : 'text-green-700 dark:text-green-400'}`}>
                                     {evaluation.necessary ? 'Ticket may be needed' : 'AI response seems sufficient'}
                                 </p>
-                                <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">{evaluation.reason}</p>
+                                <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                                    {evaluation.necessary 
+                                        ? evaluation.reason 
+                                        : "That AI response is sufficient and we don't feel there is any query that needs to be raised. If you still feel the need to raise a ticket pls click on raise anyway below button then click on raise a ticket"}
+                                </p>
                             </div>
                         </div>
                     </div>

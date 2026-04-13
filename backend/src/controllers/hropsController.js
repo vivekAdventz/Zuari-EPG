@@ -4,20 +4,75 @@ import TicketMessage from '../models/TicketMessage.js';
 // GET /api/hrops/stats
 const getHrOpsStats = async (req, res, next) => {
     try {
-        const hrOpsId = req.user._id;
-        const now = new Date();
-        const weekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
-        const dayAgo = new Date(now - 24 * 60 * 60 * 1000);
-
         const themeIds = req.user.assignedThemes || [];
-        const [totalThisWeek, pending, critical, resolved] = await Promise.all([
-            Ticket.countDocuments({ theme: { $in: themeIds }, createdAt: { $gte: weekAgo } }),
-            Ticket.countDocuments({ theme: { $in: themeIds }, status: { $in: ['open', 'hold'] } }),
-            Ticket.countDocuments({ theme: { $in: themeIds }, status: 'open', hrResponse: '', createdAt: { $lte: dayAgo } }),
-            Ticket.countDocuments({ theme: { $in: themeIds }, status: 'resolved' }),
-        ]);
+        const now = new Date();
+        const lastWeek = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-        res.status(200).json({ statusCode: 200, success: true, data: { totalThisWeek, pending, critical, resolved } });
+        // Helper to get stats for a specific point in time
+        const getStatsForDate = async (targetDate) => {
+            const tickets = await Ticket.find({ 
+                theme: { $in: themeIds },
+                createdAt: { $lte: targetDate }
+            }).populate('theme', 'daysToClosure').lean();
+
+            const total = tickets.length;
+            const active = tickets.filter(t => t.status !== 'resolved' || (new Date(t.updatedAt) > targetDate && t.createdAt <= targetDate)).length;
+            // Note: the above 'active' logic is tricky for historical snapshots without an audit log. 
+            // Simplified: calculate based on current state filtered by creation date.
+            
+            const activeCount = tickets.filter(t => ['open', 'hold'].includes(t.status)).length;
+            const resolvedCount = tickets.filter(t => t.status === 'resolved').length;
+            const resRate = total > 0 ? (resolvedCount / total) * 100 : 0;
+
+            let slaFailures = 0;
+            let backlog = 0;
+
+            tickets.forEach(t => {
+                const slaDays = t.theme?.daysToClosure || 2;
+                const slaMs = slaDays * 24 * 60 * 60 * 1000;
+                const isOverdue = (targetDate - new Date(t.createdAt)) > slaMs;
+
+                if (isOverdue) {
+                    if (t.status !== 'resolved') {
+                        backlog++;
+                        slaFailures++;
+                    } else if (new Date(t.updatedAt) - new Date(t.createdAt) > slaMs) {
+                        slaFailures++;
+                    }
+                }
+            });
+
+            return { activeCount, resRate, slaFailures, backlog };
+        };
+
+        const current = await getStatsForDate(now);
+        const previous = await getStatsForDate(lastWeek);
+
+        const calculateChange = (curr, prev) => {
+            if (prev === 0) return curr > 0 ? 100 : 0;
+            return ((curr - prev) / prev) * 100;
+        };
+
+        const data = {
+            activeTickets: {
+                value: current.activeCount,
+                change: calculateChange(current.activeCount, previous.activeCount)
+            },
+            resolutionRate: {
+                value: current.resRate.toFixed(1) + '%',
+                change: calculateChange(current.resRate, previous.resRate)
+            },
+            slaCompliance: {
+                value: current.slaFailures,
+                change: calculateChange(current.slaFailures, previous.slaFailures)
+            },
+            backlog: {
+                value: current.backlog,
+                change: calculateChange(current.backlog, previous.backlog)
+            }
+        };
+
+        res.status(200).json({ statusCode: 200, success: true, data });
     } catch (error) {
         next(error);
     }
