@@ -345,7 +345,10 @@ const EmployeeDashboard = () => {
                         availablePolicies={availablePolicies}
                         initialFeedbackIds={initialFeedbackIds}
                         initialTicketMap={initialTicketMap}
-                        onOpenTickets={() => { setCurrentView('tickets'); if (window.innerWidth < 768) setIsSidebarOpen(false); }}
+                        onOpenTickets={() => { 
+                            setCurrentView('tickets'); 
+                            if (window.innerWidth < 768) setIsSidebarOpen(false); 
+                        }}
                     />
                 )}
 

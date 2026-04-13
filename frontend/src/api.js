@@ -1054,3 +1054,34 @@ export const sendEmployeeTicketMessage = async (ticketId, message, attachment = 
     if (!res.ok) throw new Error(data.message || 'Failed to send message');
     return data.data;
 };
+
+// ── Admin Ticket Monitor ───────────────────────────────────────────────────
+export const getAdminTicketStats = async () => {
+    const res = await fetch(`${API_URL}/api/admin/tickets/stats`, { headers: getAuthHeaders() });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to fetch ticket stats');
+    return data.data;
+};
+
+export const getAdminTickets = async (filters = {}) => {
+    const queryParams = new URLSearchParams(filters).toString();
+    const res = await fetch(`${API_URL}/api/admin/tickets?${queryParams}`, { headers: getAuthHeaders() });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to fetch tickets');
+    return data;
+};
+
+export const getAdminHrOpsUsers = async () => {
+    const res = await fetch(`${API_URL}/api/admin/hrops`, { headers: getAuthHeaders() });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to fetch HROps users');
+    // The endpoint returns { data: [themes], employees: [hrOpsUsers] }
+    return data.employees || [];
+};
+
+export const getAdminThemes = async () => {
+    const res = await fetch(`${API_URL}/api/admin/config/question-themes`, { headers: getAuthHeaders() });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to fetch themes');
+    return data.data || [];
+};

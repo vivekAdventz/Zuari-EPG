@@ -25,21 +25,33 @@ const StatusBadge = ({ status }) => {
 const HrOpsOverview = () => {
     const { user } = useAuth();
     const navigate = useNavigate();
-    const [stats, setStats] = useState({ totalThisWeek: 0, pending: 0, critical: 0, resolved: 0 });
+    const [stats, setStats] = useState({
+        activeTickets: { value: 0, change: 0 },
+        resolutionRate: { value: '0%', change: 0 },
+        slaCompliance: { value: 0, change: 0 },
+        backlog: { value: 0, change: 0 }
+    });
     const [tickets, setTickets] = useState([]);
     const [loading, setLoading] = useState(true);
     const [statusFilter, setStatusFilter] = useState('');
     const [selectedTicket, setSelectedTicket] = useState(null);
+    const [page, setPage] = useState(1);
+    const [totalPages, setTotalPages] = useState(1);
+    const [limit] = useState(10);
 
     const fetchData = async () => {
         setLoading(true);
         try {
+            const queryPayload = { page, limit };
+            if (statusFilter) queryPayload.status = statusFilter;
+
             const [statsRes, ticketsRes] = await Promise.all([
                 getHrOpsStats(),
-                getAssignedTickets(statusFilter ? { status: statusFilter } : {}),
+                getAssignedTickets(queryPayload),
             ]);
             setStats(statsRes);
             setTickets(ticketsRes.data || []);
+            setTotalPages(ticketsRes.pages || 1);
         } catch (e) {
             toast.error(e.message || 'Failed to load dashboard');
         } finally {
@@ -47,9 +59,16 @@ const HrOpsOverview = () => {
         }
     };
 
+    // Ensure we refetch when page or status filter changes
     useEffect(() => {
         fetchData();
-    }, [statusFilter]);
+    }, [statusFilter, page]);
+
+    // Reset page to 1 when changing filters
+    const handleFilterChange = (filter) => {
+        setStatusFilter(filter);
+        setPage(1);
+    };
 
     const timeAgo = (date) => {
         const diff = Date.now() - new Date(date);
@@ -62,9 +81,10 @@ const HrOpsOverview = () => {
 
     const statCards = [
         {
-            label: 'This Week',
-            value: stats.totalThisWeek,
-            sub: 'Tickets assigned',
+            label: 'Active Tickets',
+            value: stats.activeTickets?.value || 0,
+            change: stats.activeTickets?.change || 0,
+            sub: 'Open + In Progress',
             color: 'from-blue-500 to-blue-600',
             icon: (
                 <svg className="w-7 h-7 text-white/80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -73,9 +93,22 @@ const HrOpsOverview = () => {
             ),
         },
         {
-            label: 'Pending',
-            value: stats.pending,
-            sub: 'Open + In Progress',
+            label: 'Avg Resolution',
+            value: stats.resolutionRate?.value || '0%',
+            change: stats.resolutionRate?.change || 0,
+            sub: 'Resolved / Total',
+            color: 'from-emerald-500 to-teal-500',
+            icon: (
+                <svg className="w-7 h-7 text-white/80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+            ),
+        },
+        {
+            label: 'SLA Failure',
+            value: stats.slaCompliance?.value || 0,
+            change: stats.slaCompliance?.change || 0,
+            sub: 'Missed closure date',
             color: 'from-amber-500 to-orange-500',
             icon: (
                 <svg className="w-7 h-7 text-white/80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -84,24 +117,14 @@ const HrOpsOverview = () => {
             ),
         },
         {
-            label: 'Critical',
-            value: String(stats.critical).padStart(2, '0'),
-            sub: 'Immediate attention',
+            label: 'Backlog',
+            value: stats.backlog?.value || 0,
+            change: stats.backlog?.change || 0,
+            sub: 'Overdue active ones',
             color: 'from-red-500 to-rose-600',
             icon: (
                 <svg className="w-7 h-7 text-white/80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
-            ),
-        },
-        {
-            label: 'Resolved',
-            value: stats.resolved,
-            sub: 'All time',
-            color: 'from-emerald-500 to-teal-500',
-            icon: (
-                <svg className="w-7 h-7 text-white/80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
             ),
         },
@@ -156,8 +179,20 @@ const HrOpsOverview = () => {
                                 {card.icon}
                             </div>
                             <p className="text-xs font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-0.5">{card.label}</p>
-                            <p className="text-3xl font-black text-gray-900 dark:text-white">{card.value}</p>
-                            <p className="text-xs text-gray-400 dark:text-slate-500 mt-0.5">{card.sub}</p>
+                            <p className="text-3xl font-black text-gray-900 dark:text-white leading-tight">{card.value}</p>
+                            <div className="flex items-center gap-1.5 mt-1.5">
+                                {card.change !== 0 ? (
+                                    <>
+                                        <span className={`text-[10px] font-black px-1.5 py-0.5 rounded ${card.change > 0 ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
+                                            {card.change > 0 ? '+' : ''}{card.change.toFixed(1)}%
+                                        </span>
+                                        <span className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter">vs last week</span>
+                                    </>
+                                ) : (
+                                    <span className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter">Stable vs last week</span>
+                                )}
+                            </div>
+                            <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-2 opacity-70 italic">{card.sub}</p>
                         </div>
                     ))}
             </div>
@@ -167,7 +202,7 @@ const HrOpsOverview = () => {
                 {[['', 'All'], ['open', 'Open'], ['hold', 'Hold'], ['resolved', 'Resolved']].map(([val, label]) => (
                     <button
                         key={val}
-                        onClick={() => setStatusFilter(val)}
+                        onClick={() => handleFilterChange(val)}
                         className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${statusFilter === val ? 'bg-zuari-navy text-white shadow' : 'bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-700'}`}
                     >
                         {label}
@@ -182,7 +217,10 @@ const HrOpsOverview = () => {
                         <thead className="bg-gray-50 dark:bg-slate-900 border-b border-gray-100 dark:border-slate-700">
                             <tr>
                                 <th className="px-5 py-4 text-xs font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Ticket ID</th>
-                                <th className="px-5 py-4 text-xs font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Employee</th>
+                                <th className="px-5 py-4 text-xs font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Raised By</th>
+                                <th className="px-5 py-4 text-xs font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Category</th>
+                                <th className="px-5 py-4 text-xs font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Assigned To</th>
+                                <th className="px-5 py-4 text-xs font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Subject</th>
                                 <th className="px-5 py-4 text-xs font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Description</th>
                                 <th className="px-5 py-4 text-xs font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Status</th>
                                 <th className="px-5 py-4 text-xs font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Created</th>
@@ -230,9 +268,24 @@ const HrOpsOverview = () => {
                                             </div>
                                         </div>
                                     </td>
-                                    <td className="px-5 py-4 max-w-xs">
-                                        <div className="text-gray-700 dark:text-gray-300 text-xs truncate">{ticket.subject || ticket.description || ticket.userQuestion || '—'}</div>
-                                        <div className="text-[10px] text-gray-400 mt-0.5">{ticket.themeName}</div>
+                                    <td className="px-5 py-4">
+                                        <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-slate-700 px-2 py-1 rounded-lg whitespace-nowrap">
+                                            {ticket.themeName || '—'}
+                                        </span>
+                                    </td>
+                                    <td className="px-5 py-4">
+                                        <div className="flex items-center gap-1.5">
+                                            <div className="w-6 h-6 rounded-full bg-violet-500 flex items-center justify-center text-white text-[10px] font-bold shrink-0">
+                                                {user?.name?.charAt(0) || 'H'}
+                                            </div>
+                                            <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">{user?.name}</span>
+                                        </div>
+                                    </td>
+                                    <td className="px-5 py-4">
+                                        <div className="text-gray-700 dark:text-gray-300 text-xs font-bold">{ticket.subject || '—'}</div>
+                                    </td>
+                                    <td className="px-5 py-4">
+                                        <div className="text-gray-700 dark:text-gray-300 text-xs">{ticket.description || ticket.userQuestion || '—'}</div>
                                     </td>
                                     <td className="px-5 py-4">
                                         <StatusBadge status={ticket.status} />
@@ -259,6 +312,32 @@ const HrOpsOverview = () => {
                         </tbody>
                     </table>
                 </div>
+
+                {totalPages > 1 && (
+                    <div className="flex items-center justify-between px-5 py-4 border-t border-gray-100 dark:border-slate-700 bg-gray-50/50 dark:bg-slate-900/50 rounded-b-[24px]">
+                        <div className="flex items-center gap-3">
+                            <span className="text-xs font-semibold text-gray-500 dark:text-gray-400">
+                                Page <span className="text-gray-900 dark:text-white font-black">{page}</span> of {totalPages}
+                            </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={() => setPage(p => Math.max(1, p - 1))}
+                                disabled={page === 1}
+                                className="px-3 py-1.5 rounded-lg text-xs font-bold border border-gray-200 dark:border-slate-600 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-700 dark:text-gray-300 transition-colors shadow-sm"
+                            >
+                                Previous
+                            </button>
+                            <button
+                                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                                disabled={page === totalPages}
+                                className="px-3 py-1.5 rounded-lg text-xs font-bold border border-gray-200 dark:border-slate-600 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-700 dark:text-gray-300 transition-colors shadow-sm"
+                            >
+                                Next
+                            </button>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
         </>

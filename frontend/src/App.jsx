@@ -20,6 +20,7 @@ import SuperAdminInteractions from './pages/superadmin/SuperAdminInteractions';
 import SuperAdminApiCost from './pages/superadmin/SuperAdminApiCost';
 import AdminFeedbackAnalysis from './pages/admin/AdminFeedbackAnalysis';
 import AdminHrOps from './pages/admin/AdminHrOps';
+import AdminTickets from './pages/admin/AdminTickets';
 import HrOpsLayout from './pages/hrops/HrOpsLayout';
 import HrOpsOverview from './pages/hrops/HrOpsOverview';
 import Playground from './pages/Playground';
@@ -139,6 +140,7 @@ function App() {
           <Route path="insights" element={<AdminInsights />} />
           <Route path="feedback-analysis" element={<AdminFeedbackAnalysis />} />
           <Route path="hrops-management" element={<AdminHrOps />} />
+          <Route path="tickets" element={<AdminTickets />} />
         </Route>
 
         {/* HROps Routes */}
