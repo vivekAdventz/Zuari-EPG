@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { getHrOpsStats, getAssignedTickets } from '../../api';
+import TicketChatModal from '../../components/TicketChatModal';
+import { FiMessageCircle } from 'react-icons/fi';
 import { useAuth } from '../../context/AuthContext';
 
 const STATUS_META = {
@@ -24,28 +26,30 @@ const HrOpsOverview = () => {
     const { user } = useAuth();
     const navigate = useNavigate();
     const [stats, setStats] = useState({ totalThisWeek: 0, pending: 0, critical: 0, resolved: 0 });
-    const [recentTickets, setRecentTickets] = useState([]);
+    const [tickets, setTickets] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [statusFilter, setStatusFilter] = useState('');
+    const [selectedTicket, setSelectedTicket] = useState(null);
+
+    const fetchData = async () => {
+        setLoading(true);
+        try {
+            const [statsRes, ticketsRes] = await Promise.all([
+                getHrOpsStats(),
+                getAssignedTickets(statusFilter ? { status: statusFilter } : {}),
+            ]);
+            setStats(statsRes);
+            setTickets(ticketsRes.data || []);
+        } catch (e) {
+            toast.error(e.message || 'Failed to load dashboard');
+        } finally {
+            setLoading(false);
+        }
+    };
 
     useEffect(() => {
-        const fetchData = async () => {
-            setLoading(true);
-            try {
-                const [statsRes, ticketsRes] = await Promise.all([
-                    getHrOpsStats(),
-                    getAssignedTickets({}),
-                ]);
-                setStats(statsRes);
-                const all = ticketsRes.data || [];
-                setRecentTickets(all.slice(0, 5));
-            } catch (e) {
-                toast.error(e.message || 'Failed to load dashboard');
-            } finally {
-                setLoading(false);
-            }
-        };
         fetchData();
-    }, []);
+    }, [statusFilter]);
 
     const timeAgo = (date) => {
         const diff = Date.now() - new Date(date);
@@ -104,6 +108,15 @@ const HrOpsOverview = () => {
     ];
 
     return (
+        <>
+            {selectedTicket && (
+                <TicketChatModal
+                    ticket={selectedTicket}
+                    onClose={() => { setSelectedTicket(null); fetchData(); }}
+                    userRole="hrOps"
+                />
+            )}
+
         <div className="space-y-7 animate-up">
 
             {/* Welcome Header */}
@@ -118,14 +131,9 @@ const HrOpsOverview = () => {
                             : 'All tickets are up to date. Great work!'}
                     </p>
                 </div>
-                <button
-                    onClick={() => navigate('/hrops/tickets')}
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold shadow-md shadow-blue-500/20 transition-all hover:scale-105 active:scale-95"
-                >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                    </svg>
-                    Open Ticket Console
+                <button onClick={fetchData} className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-300 text-sm font-bold shadow-sm hover:shadow-md hover:bg-gray-50 dark:hover:bg-slate-700 transition-all hover:scale-105 active:scale-95">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                    Refresh
                 </button>
             </div>
 
@@ -154,116 +162,106 @@ const HrOpsOverview = () => {
                     ))}
             </div>
 
-            {/* Quick Actions */}
-            <div>
-                <h2 className="text-sm font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest mb-4">Quick Actions</h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Filter tabs */}
+            <div className="flex gap-2 flex-wrap">
+                {[['', 'All'], ['open', 'Open'], ['hold', 'Hold'], ['resolved', 'Resolved']].map(([val, label]) => (
                     <button
-                        onClick={() => navigate('/hrops/tickets')}
-                        className="flex items-center gap-4 p-5 rounded-2xl bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 shadow-sm hover:shadow-md hover:border-blue-200 dark:hover:border-blue-800 text-left transition-all group"
+                        key={val}
+                        onClick={() => setStatusFilter(val)}
+                        className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${statusFilter === val ? 'bg-zuari-navy text-white shadow' : 'bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-700'}`}
                     >
-                        <div className="w-12 h-12 rounded-xl bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center shrink-0 group-hover:bg-blue-100 dark:group-hover:bg-blue-900/40 transition-colors">
-                            <svg className="w-6 h-6 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                            </svg>
-                        </div>
-                        <div>
-                            <p className="font-bold text-gray-800 dark:text-white text-sm">Ticket Console</p>
-                            <p className="text-xs text-gray-400 dark:text-slate-500 mt-0.5">View and manage all assigned tickets</p>
-                        </div>
-                        <svg className="w-5 h-5 text-gray-300 dark:text-slate-600 ml-auto group-hover:text-blue-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
-                        </svg>
+                        {label}
                     </button>
-
-                    {user?.roles?.includes('employee') && (
-                        <button
-                            onClick={() => navigate('/chat')}
-                            className="flex items-center gap-4 p-5 rounded-2xl bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 shadow-sm hover:shadow-md hover:border-emerald-200 dark:hover:border-emerald-800 text-left transition-all group"
-                        >
-                            <div className="w-12 h-12 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center shrink-0 group-hover:bg-emerald-100 dark:group-hover:bg-emerald-900/40 transition-colors">
-                                <svg className="w-6 h-6 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
-                                </svg>
-                            </div>
-                            <div>
-                                <p className="font-bold text-gray-800 dark:text-white text-sm">Switch to Employee View</p>
-                                <p className="text-xs text-gray-400 dark:text-slate-500 mt-0.5">Access the employee chat portal</p>
-                            </div>
-                            <svg className="w-5 h-5 text-gray-300 dark:text-slate-600 ml-auto group-hover:text-emerald-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
-                            </svg>
-                        </button>
-                    )}
-                </div>
+                ))}
             </div>
 
-            {/* Recent Tickets */}
-            <div>
-                <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-sm font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Recent Tickets</h2>
-                    <button
-                        onClick={() => navigate('/hrops/tickets')}
-                        className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline"
-                    >
-                        View All →
-                    </button>
-                </div>
-
-                <div className="bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
-                    {loading ? (
-                        <div className="p-6 space-y-4">
-                            {[1, 2, 3].map(i => (
-                                <div key={i} className="animate-pulse flex gap-3">
-                                    <div className="w-9 h-9 rounded-full bg-gray-100 dark:bg-slate-700 shrink-0" />
-                                    <div className="flex-1 space-y-2">
-                                        <div className="h-3 bg-gray-100 dark:bg-slate-700 rounded w-3/4" />
-                                        <div className="h-3 bg-gray-100 dark:bg-slate-700 rounded w-1/2" />
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    ) : recentTickets.length === 0 ? (
-                        <div className="py-14 text-center">
-                            <div className="w-12 h-12 rounded-full bg-gray-100 dark:bg-slate-700 mx-auto mb-3 flex items-center justify-center">
-                                <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                                </svg>
-                            </div>
-                            <p className="text-sm text-gray-400 dark:text-slate-500">No tickets assigned yet</p>
-                        </div>
-                    ) : (
-                        <div className="divide-y divide-gray-50 dark:divide-slate-700/50">
-                            {recentTickets.map(ticket => (
-                                <div
-                                    key={ticket._id}
-                                    onClick={() => navigate('/hrops/tickets')}
-                                    className="flex items-center gap-4 px-5 py-4 hover:bg-gray-50/70 dark:hover:bg-slate-700/30 cursor-pointer transition-colors group"
-                                >
-                                    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white text-sm font-bold shrink-0 shadow">
-                                        {ticket.userName?.charAt(0) || '?'}
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-2">
-                                            <span className="font-mono text-xs font-black text-blue-600 dark:text-blue-400">{ticket.ticketNumber}</span>
-                                            <span className="text-gray-400 text-xs">·</span>
-                                            <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 truncate">{ticket.userName}</span>
+            {/* Table */}
+            <div className="bg-white dark:bg-slate-800 rounded-[24px] border border-gray-100 dark:border-slate-700 shadow-sm overflow-hidden">
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                        <thead className="bg-gray-50 dark:bg-slate-900 border-b border-gray-100 dark:border-slate-700">
+                            <tr>
+                                <th className="px-5 py-4 text-xs font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Ticket ID</th>
+                                <th className="px-5 py-4 text-xs font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Employee</th>
+                                <th className="px-5 py-4 text-xs font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Description</th>
+                                <th className="px-5 py-4 text-xs font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Status</th>
+                                <th className="px-5 py-4 text-xs font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Created</th>
+                                <th className="px-5 py-4 text-xs font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">Chat</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-50 dark:divide-slate-700/50">
+                            {loading ? (
+                                [1, 2, 3].map(i => (
+                                    <tr key={i}>
+                                        {[1, 2, 3, 4, 5, 6].map(j => (
+                                            <td key={j} className="px-5 py-4">
+                                                <div className="animate-pulse bg-gray-100 dark:bg-slate-700 rounded-lg h-4 w-full" />
+                                            </td>
+                                        ))}
+                                    </tr>
+                                ))
+                            ) : tickets.length === 0 ? (
+                                <tr>
+                                    <td colSpan={6} className="px-5 py-14 text-center text-gray-400 dark:text-slate-500">
+                                        <div className="w-12 h-12 rounded-full bg-gray-100 dark:bg-slate-700 mx-auto mb-3 flex items-center justify-center">
+                                            <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
                                         </div>
-                                        <p className="text-xs text-gray-500 dark:text-slate-400 truncate mt-0.5">
-                                            {ticket.subject || ticket.description || ticket.userQuestion || '—'}
-                                        </p>
-                                    </div>
-                                    <div className="flex items-center gap-3 shrink-0">
+                                        No tickets found
+                                    </td>
+                                </tr>
+                            ) : tickets.map(ticket => (
+                                <tr
+                                    key={ticket._id}
+                                    onClick={() => setSelectedTicket(ticket)}
+                                    className="hover:bg-gray-50/70 dark:hover:bg-slate-700/30 transition-colors cursor-pointer group"
+                                >
+                                    <td className="px-5 py-4">
+                                        <div className="font-mono font-black text-blue-600 dark:text-blue-400 text-xs">{ticket.ticketNumber}</div>
+                                        <div className="text-[10px] text-gray-400 mt-0.5">{timeAgo(ticket.createdAt)}</div>
+                                    </td>
+                                    <td className="px-5 py-4">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-7 h-7 rounded-full bg-zuari-navy flex items-center justify-center text-white text-xs font-bold shrink-0">
+                                                {ticket.userName?.charAt(0) || '?'}
+                                            </div>
+                                            <div>
+                                                <div className="font-semibold text-gray-800 dark:text-white text-xs">{ticket.userName}</div>
+                                                <div className="text-[10px] text-gray-400">{ticket.userEntity || ticket.userEmail}</div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td className="px-5 py-4 max-w-xs">
+                                        <div className="text-gray-700 dark:text-gray-300 text-xs truncate">{ticket.subject || ticket.description || ticket.userQuestion || '—'}</div>
+                                        <div className="text-[10px] text-gray-400 mt-0.5">{ticket.themeName}</div>
+                                    </td>
+                                    <td className="px-5 py-4">
                                         <StatusBadge status={ticket.status} />
-                                        <span className="text-xs text-gray-400 dark:text-slate-500 hidden sm:block">{timeAgo(ticket.createdAt)}</span>
-                                    </div>
-                                </div>
+                                    </td>
+                                    <td className="px-5 py-4 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                                        {new Date(ticket.createdAt).toLocaleDateString()}
+                                    </td>
+                                    <td className="px-5 py-4 text-center" onClick={e => e.stopPropagation()}>
+                                        <button
+                                            onClick={() => setSelectedTicket(ticket)}
+                                            className="relative p-2 rounded-xl transition-all text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/40 cursor-pointer"
+                                            title="Open Chat"
+                                        >
+                                            <FiMessageCircle size={20} />
+                                            {ticket.unreadMessages > 0 && (
+                                                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] flex items-center justify-center bg-red-500 text-white text-[10px] font-bold rounded-full px-1 border-2 border-white dark:border-slate-800">
+                                                    {ticket.unreadMessages > 99 ? '99+' : ticket.unreadMessages}
+                                                </span>
+                                            )}
+                                        </button>
+                                    </td>
+                                </tr>
                             ))}
-                        </div>
-                    )}
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>
+        </>
     );
 };
 

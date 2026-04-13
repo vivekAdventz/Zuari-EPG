@@ -184,15 +184,10 @@ const raiseTicket = async (req, res, next) => {
         }
 
         const themeName = themeDoc?.name || 'Other / Unclassified';
-
-        // Find HROps users assigned to this theme
-        const assignedToIds = themeDoc
-            ? (await User.find({ roles: 'hrOps', assignedThemes: themeDoc._id }).select('_id').lean()).map(u => u._id)
-            : [];
-
+ 
         // Create ticket
         const populatedUser = await User.findById(req.user._id).populate('entity', 'name').lean();
-
+ 
         const ticket = await Ticket.create({
             userId:            req.user._id,
             userName:          req.user.name,
@@ -206,7 +201,6 @@ const raiseTicket = async (req, res, next) => {
             description:       description || '',
             theme:             themeDoc?._id || null,
             themeName,
-            assignedTo:        assignedToIds,
             status:            'open',
         });
 

@@ -9,11 +9,12 @@ const getHrOpsStats = async (req, res, next) => {
         const weekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
         const dayAgo = new Date(now - 24 * 60 * 60 * 1000);
 
+        const themeIds = req.user.assignedThemes || [];
         const [totalThisWeek, pending, critical, resolved] = await Promise.all([
-            Ticket.countDocuments({ assignedTo: hrOpsId, createdAt: { $gte: weekAgo } }),
-            Ticket.countDocuments({ assignedTo: hrOpsId, status: { $in: ['open', 'hold'] } }),
-            Ticket.countDocuments({ assignedTo: hrOpsId, status: 'open', hrResponse: '', createdAt: { $lte: dayAgo } }),
-            Ticket.countDocuments({ assignedTo: hrOpsId, status: 'resolved' }),
+            Ticket.countDocuments({ theme: { $in: themeIds }, createdAt: { $gte: weekAgo } }),
+            Ticket.countDocuments({ theme: { $in: themeIds }, status: { $in: ['open', 'hold'] } }),
+            Ticket.countDocuments({ theme: { $in: themeIds }, status: 'open', hrResponse: '', createdAt: { $lte: dayAgo } }),
+            Ticket.countDocuments({ theme: { $in: themeIds }, status: 'resolved' }),
         ]);
 
         res.status(200).json({ statusCode: 200, success: true, data: { totalThisWeek, pending, critical, resolved } });
@@ -26,7 +27,8 @@ const getHrOpsStats = async (req, res, next) => {
 const getAssignedTickets = async (req, res, next) => {
     try {
         const { status, category, startDate, endDate, page = 1, limit = 20 } = req.query;
-        const filter = { assignedTo: req.user._id };
+        const themeIds = req.user.assignedThemes || [];
+        const filter = { theme: { $in: themeIds } };
         if (status) filter.status = status;
         if (category) filter.theme = category;
         if (startDate || endDate) {
@@ -97,8 +99,9 @@ const updateAssignedTicket = async (req, res, next) => {
     try {
         const { id } = req.params;
         const { status, hrResponse } = req.body;
+        const themeIds = req.user.assignedThemes || [];
 
-        const ticket = await Ticket.findOne({ _id: id, assignedTo: req.user._id });
+        const ticket = await Ticket.findOne({ _id: id, theme: { $in: themeIds } });
         if (!ticket) {
             res.status(404);
             throw new Error('Ticket not found or not assigned to you');
@@ -124,8 +127,9 @@ const updateAssignedTicket = async (req, res, next) => {
 const getTicketMessages = async (req, res, next) => {
     try {
         const { id } = req.params;
-        const ticket = await Ticket.findOne({ _id: id, assignedTo: req.user._id }).lean();
-        if (!ticket) { res.status(404); throw new Error('Ticket not found or not assigned to you'); }
+        const themeIds = req.user.assignedThemes || [];
+        const ticket = await Ticket.findOne({ _id: id, theme: { $in: themeIds } }).lean();
+        if (!ticket) { res.status(404); throw new Error('Ticket not found or not assigned to your categories'); }
 
         const messages = await TicketMessage.find({ ticketId: id }).sort({ createdAt: 1 }).lean();
 
@@ -147,11 +151,12 @@ const sendTicketMessage = async (req, res, next) => {
         const { id } = req.params;
         const { message, requestUploadType } = req.body;
         const file = req.file;
+        const themeIds = req.user.assignedThemes || [];
         
         if (!message?.trim() && !file && !requestUploadType) { res.status(400); throw new Error('Message, attachment, or upload request is required'); }
 
-        const ticket = await Ticket.findOne({ _id: id, assignedTo: req.user._id }).lean();
-        if (!ticket) { res.status(404); throw new Error('Ticket not found or not assigned to you'); }
+        const ticket = await Ticket.findOne({ _id: id, theme: { $in: themeIds } }).lean();
+        if (!ticket) { res.status(404); throw new Error('Ticket not found or not assigned to your categories'); }
 
         let attachmentUrl = null;
         let attachmentType = null;

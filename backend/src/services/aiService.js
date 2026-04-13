@@ -4,6 +4,7 @@ import { searchPolicy } from './search.js';
 import ApiUsage from '../models/ApiUsage.js';
 
 const MODEL_PRICING = {
+    'gemini-2.5-flash-lite': { prompt: 0.0375, completion: 0.15 },
     'gemini-1.5-flash': { prompt: 0.075, completion: 0.30 },
     'gemini-2.5-flash': { prompt: 0.075, completion: 0.30 },
     'gemini-1.5-pro': { prompt: 1.25, completion: 5.00 },
@@ -45,6 +46,7 @@ const logApiUsage = async (response, operation, modelName = "gemini-2.5-flash", 
 };
 
 const FALLBACK_MODELS = {
+    'gemini-2.5-flash-lite': 'gemini-2.5-flash',
     'gemini-2.5-pro': 'gemini-2.5-flash',
     'gemini-2.5-flash': 'gemini-2.5-pro',
 };
@@ -553,7 +555,7 @@ const evaluateTicketNecessity = async (conversationMessages = [], userQuestion, 
         ].filter(Boolean).join('\n\n');
 
         const { response, modelUsed } = await callGeminiWithFallback({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-2.5-flash-lite',
             contents: [{ role: 'user', parts: [{ text: userContent }] }],
             config: {
                 systemInstruction: `You are a Quality Assurance evaluator for an HR support system. An employee wants to raise a support ticket after receiving an AI response.
@@ -642,7 +644,7 @@ const evaluateIndependentTicket = async (subject, description, user) => {
         ].filter(Boolean).join('\n\n');
 
         const { response, modelUsed } = await callGeminiWithFallback({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-2.5-flash-lite',
             contents: [{ role: 'user', parts: [{ text: userContent }] }],
             config: {
                 systemInstruction: `You are a Quality Assurance evaluator for an HR support system. An employee wants to raise a support ticket directly (without chatting with AI first).
