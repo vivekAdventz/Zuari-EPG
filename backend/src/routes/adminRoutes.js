@@ -30,6 +30,7 @@ import {
     updateThemeClosure,
     getGlobalTicketStats,
     getGlobalTickets,
+    exportGlobalTickets,
 } from '../controllers/adminController.js';
 
 import { handlePlaygroundChat, handlePlaygroundReset } from '../controllers/playground/playgroundController.js';
@@ -194,6 +195,8 @@ router.get('/feedbacks/users', protect, admin, getUserFeedbacks);
 
 // Ticket Monitor (Admin View)
 router.get('/tickets/stats', protect, admin, getGlobalTicketStats);
+router.get('/tickets/export', protect, admin, exportGlobalTickets);
 router.get('/tickets', protect, admin, getGlobalTickets);
 
 export default router;
+// Force reload

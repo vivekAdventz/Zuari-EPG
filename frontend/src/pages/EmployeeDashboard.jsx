@@ -179,8 +179,8 @@ const EmployeeDashboard = () => {
         fetchMessages();
     }, [activeSessionId]);
 
-    const handleSendMessage = async (content) => {
-        if (!activeSessionId) {
+    const handleSendMessage = async (content, isRegenerate = false) => {
+        if (!activeSessionId && !isRegenerate) {
             try {
                 const newSession = await createConversation(content.substring(0, 30) + "...");
                 setSessions([newSession, ...sessions]);
@@ -192,10 +192,10 @@ const EmployeeDashboard = () => {
             }
             return;
         }
-        await sendMsgAPI(activeSessionId, content);
+        await sendMsgAPI(activeSessionId, content, isRegenerate);
     };
 
-    const sendMsgAPI = async (sessionId, content) => {
+    const sendMsgAPI = async (sessionId, content, isRegenerate = false) => {
         const tempId = Date.now().toString();
         const tempUserMsg = {
             _id: tempId,
@@ -203,19 +203,32 @@ const EmployeeDashboard = () => {
             content,
             updatedAt: new Date().toISOString()
         };
-        setMessages(prev => [...prev, tempUserMsg]);
+        
+        // Only append user message if NOT regenerating
+        if (!isRegenerate) {
+            setMessages(prev => [...prev, tempUserMsg]);
+        }
+        
         setIsLoading(true);
 
         try {
-            const response = await sendMessage(sessionId, content, selectedPolicyTitle);
-            const { userMessage, botMessage } = response;
+            const response = await sendMessage(sessionId, content, selectedPolicyTitle, isRegenerate);
+            const { userMessage, botMessage } = response || {};
 
-            // Replace the temporary user message with the real one from backend (which has real _id)
-            setMessages(prev => prev.map(m => m._id === tempId ? userMessage : m).concat(botMessage));
+            if (!botMessage) throw new Error("No response from AI");
+
+            if (!isRegenerate) {
+                // Replace the temporary user message with the real one from backend (which has real _id)
+                setMessages(prev => prev.map(m => m._id === tempId ? (userMessage || m) : m).concat(botMessage));
+            } else {
+                // Just append the bot message
+                setMessages(prev => [...prev, botMessage]);
+            }
         } catch (error) {
             console.error("Failed to send message:", error);
-            // Optionally remove the temp message on error
-            setMessages(prev => prev.filter(m => m._id !== tempId));
+            if (!isRegenerate) {
+                setMessages(prev => prev.filter(m => m._id !== tempId));
+            }
         } finally {
             setIsLoading(false);
         }

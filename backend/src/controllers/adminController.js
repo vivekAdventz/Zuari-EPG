@@ -1210,16 +1210,48 @@ const getGlobalTicketStats = async (req, res, next) => {
 // @access  Private/Admin
 const getGlobalTickets = async (req, res, next) => {
     try {
-        const { status, theme, hropsId, page = 1, limit = 10 } = req.query;
+        const { status, theme, hropsId, page = 1, limit = 10, search, startDate, endDate } = req.query;
         const filter = {};
 
         if (status) filter.status = status;
+
+        // Date range
+        if (startDate || endDate) {
+            filter.createdAt = {};
+            if (startDate) {
+                filter.createdAt.$gte = new Date(`${startDate}T00:00:00`);
+            }
+            if (endDate) {
+                filter.createdAt.$lte = new Date(`${endDate}T23:59:59.999`);
+            }
+        }
+
+        // Search in employee name, subject or description
+        if (search) {
+            const matchingUsers = await User.find({ name: { $regex: search, $options: 'i' } }).select('_id').lean();
+            const userIds = matchingUsers.map(u => u._id);
+            
+            filter.$and = filter.$and || [];
+            filter.$and.push({
+                $or: [
+                    { userId: { $in: userIds } },
+                    { description: { $regex: search, $options: 'i' } },
+                    { subject: { $regex: search, $options: 'i' } },
+                    { ticketNumber: { $regex: search, $options: 'i' } }
+                ]
+            });
+        }
 
         // If filtering by HROps user, resolve their assigned themes
         if (hropsId) {
             const hropsUser = await User.findById(hropsId).select('assignedThemes').lean();
             if (hropsUser && hropsUser.assignedThemes?.length > 0) {
-                filter.theme = theme ? theme : { $in: hropsUser.assignedThemes };
+                const hropsThemes = hropsUser.assignedThemes.map(id => id.toString());
+                if (theme) {
+                    filter.theme = theme;
+                } else {
+                    filter.theme = { $in: hropsThemes };
+                }
             } else {
                 return res.status(200).json({ statusCode: 200, success: true, data: [], total: 0, page: 1, pages: 0 });
             }
@@ -1266,6 +1298,89 @@ const getGlobalTickets = async (req, res, next) => {
     }
 };
 
+// @desc    Export Global Tickets to CSV (Admin)
+// @route   GET /api/admin/tickets/export
+// @access  Private/Admin
+const exportGlobalTickets = async (req, res, next) => {
+    try {
+        const { status, theme, hropsId, search, startDate, endDate } = req.query;
+        const filter = {};
+
+        if (status) filter.status = status;
+
+        if (startDate || endDate) {
+            filter.createdAt = {};
+            if (startDate) filter.createdAt.$gte = new Date(`${startDate}T00:00:00`);
+            if (endDate) filter.createdAt.$lte = new Date(`${endDate}T23:59:59.999`);
+        }
+
+        if (search) {
+            const matchingUsers = await User.find({ name: { $regex: search, $options: 'i' } }).select('_id').lean();
+            const userIds = matchingUsers.map(u => u._id);
+            filter.$and = filter.$and || [];
+            filter.$and.push({
+                $or: [
+                    { userId: { $in: userIds } },
+                    { description: { $regex: search, $options: 'i' } },
+                    { subject: { $regex: search, $options: 'i' } },
+                    { ticketNumber: { $regex: search, $options: 'i' } }
+                ]
+            });
+        }
+
+        if (hropsId) {
+            const hropsUser = await User.findById(hropsId).select('assignedThemes').lean();
+            if (hropsUser && hropsUser.assignedThemes?.length > 0) {
+                const hropsThemes = hropsUser.assignedThemes.map(id => id.toString());
+                if (theme) {
+                    filter.theme = theme;
+                } else {
+                    filter.theme = { $in: hropsThemes };
+                }
+            } else {
+                return res.status(200).send('Ticket ID,Raised By,Email,Category,Assigned To (HR POC),Subject,Description,Status,Created At\n');
+            }
+        } else if (theme) {
+            filter.theme = theme;
+        }
+
+        const [tickets, allHrOpsUsers] = await Promise.all([
+            Ticket.find(filter)
+                .populate('userId', 'name email')
+                .populate('theme', 'name')
+                .sort({ createdAt: -1 })
+                .lean(),
+            User.find({ roles: 'hrOps' }).select('name assignedThemes').lean(),
+        ]);
+
+        const themeToHrOps = {};
+        allHrOpsUsers.forEach(u => {
+            u.assignedThemes.forEach(tId => { themeToHrOps[tId.toString()] = u.name; });
+        });
+
+        const csvData = tickets.map(t => ({
+            'Ticket ID': t.ticketNumber,
+            'Raised By': t.userId?.name || 'N/A',
+            'Email': t.userId?.email || 'N/A',
+            'Category': t.theme?.name || 'N/A',
+            'Assigned To (HR POC)': themeToHrOps[t.theme?._id?.toString()] || 'Unassigned',
+            'Subject': t.subject || 'N/A',
+            'Description': (t.description || t.userQuestion || 'N/A').replace(/,/g, ';').replace(/\n/g, ' '),
+            'Status': t.status,
+            'Created At': new Date(t.createdAt).toLocaleString()
+        }));
+
+        const ws = XLSX.utils.json_to_sheet(csvData);
+        const csvContent = XLSX.utils.sheet_to_csv(ws);
+
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename=tickets_export_${Date.now()}.csv`);
+        res.status(200).send(csvContent);
+    } catch (error) {
+        next(error);
+    }
+};
+
 export {
     getDashboardStats,
     getUsers,
@@ -1294,5 +1409,6 @@ export {
     toggleHrOpsUserStatus,
     updateThemeClosure,
     getGlobalTicketStats,
-    getGlobalTickets
+    getGlobalTickets,
+    exportGlobalTickets
 };

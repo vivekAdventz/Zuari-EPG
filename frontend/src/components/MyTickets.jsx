@@ -147,9 +147,17 @@ const MyTickets = ({ onBack }) => {
         loadCategories();
     }, []);
 
+    const getWordCount = (text) => {
+        return text.trim().split(/\s+/).filter(word => word.length > 0).length;
+    };
+
     const handleGenerateFields = async (e) => {
         e.preventDefault();
-        if (!form.description.trim()) { setRaiseError('Description is required'); return; }
+        const wordCount = getWordCount(form.description);
+        if (wordCount < 25) {
+            setRaiseError(`Description must be at least 25 words (current: ${wordCount})`);
+            return;
+        }
         setRaiseError('');
         setGeneratingFields(true);
         try {
@@ -172,7 +180,12 @@ const MyTickets = ({ onBack }) => {
         e.preventDefault();
         if (!form.categoryId) { setRaiseError('Category is required'); return; }
         if (!form.subject.trim()) { setRaiseError('Subject is required'); return; }
-        if (!form.description.trim()) { setRaiseError('Description is required'); return; }
+        
+        const wordCount = getWordCount(form.description);
+        if (wordCount < 25) {
+            setRaiseError(`Description must be at least 25 words (current: ${wordCount})`);
+            return;
+        }
         setRaiseError('');
 
         // Start QA evaluation

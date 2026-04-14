@@ -18,6 +18,35 @@ const submitFeedback = async (req, res, next) => {
             throw new Error('queryId, responseId, userQuestion, aiResponse and thumbs are required');
         }
 
+        // Check for existing feedback by this user for this response
+        const existingFeedback = await QueryFeedback.findOne({
+            responseId,
+            userMail: req.user.email
+        });
+
+        if (existingFeedback) {
+            // If the same thumb is clicked, treat as toggle off -> DELETE
+            if (existingFeedback.thumbs === thumbs) {
+                await QueryFeedback.findByIdAndDelete(existingFeedback._id);
+                return res.status(200).json({
+                    statusCode: 200,
+                    success: true,
+                    message: 'Feedback removed',
+                    data: null
+                });
+            } else {
+                // If different thumb, UPDATE
+                existingFeedback.thumbs = thumbs;
+                existingFeedback.description = description || existingFeedback.description;
+                await existingFeedback.save();
+                return res.status(200).json({
+                    statusCode: 200,
+                    success: true,
+                    data: existingFeedback
+                });
+            }
+        }
+
         // Populate entity, level, empCategory for readable names
         const populatedUser = await User.findById(req.user._id)
             .populate('entity', 'name')
@@ -155,6 +184,14 @@ const raiseTicket = async (req, res, next) => {
         if (!isChatTicket && !isIndependentTicket) {
             res.status(400);
             throw new Error('Either (userQuestion + aiResponse) for chat tickets or (subject) for independent tickets is required');
+        }
+
+        // 25-word minimum check
+        const descToCheck = description || (isChatTicket ? userQuestion : '');
+        const wordCount = descToCheck.trim().split(/\s+/).filter(w => w.length > 0).length;
+        if (wordCount < 25) {
+            res.status(400);
+            throw new Error(`Ticket description must be at least 25 words (current: ${wordCount})`);
         }
 
         // Classify: use userQuestion for chat tickets, or subject+description for independent

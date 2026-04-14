@@ -9,9 +9,14 @@ const RaiseTicketModal = ({ question, answer, onClose, onRaise }) => {
     const [error, setError] = useState('');
     const [desc, setDesc] = useState('');
 
+    const getWordCount = (text) => {
+        return text.trim().split(/\s+/).filter(word => word.length > 0).length;
+    };
+
     const handleRaise = async () => {
-        if (!desc.trim()) {
-            setError('Description is required. Please explain what you need help with.');
+        const wordCount = getWordCount(desc);
+        if (wordCount < 25) {
+            setError(`Description must be at least 25 words to raise a ticket (current: ${wordCount})`);
             return;
         }
         setRaising(true);
@@ -243,6 +248,24 @@ const ChatArea = ({
     const [qaEvaluating, setQaEvaluating] = useState(false);
     const [qaError, setQaError] = useState('');
 
+    // Group messages into turns (each turn has one user question and multiple AI response versions)
+    const groupedMessages = [];
+    (messages || []).forEach((msg) => {
+        if (!msg) return;
+        if (msg.role === 'user') {
+            groupedMessages.push({ user: msg, aiVersions: [] });
+        } else if (msg.role === 'ai' || msg.role === 'assistant') {
+            const lastTurn = groupedMessages[groupedMessages.length - 1];
+            if (lastTurn) {
+                lastTurn.aiVersions.push(msg);
+            } else {
+                groupedMessages.push({ user: null, aiVersions: [msg] });
+            }
+        }
+    });
+
+    const [versionIndices, setVersionIndices] = useState({}); // turnIndex -> currentVersionIndex
+
     // Populate persisted feedback & ticket states from backend
     useEffect(() => {
         if (initialFeedbackIds?.length) {
@@ -295,13 +318,29 @@ const ChatArea = ({
         return null;
     };
 
-    const handleThumb = async (msg, msgIndex, thumbType) => {
+    const handleThumb = async (msg, userMsg, thumbType) => {
         const msgId = msg._id || msg.id;
-        if (submittedSet.has(msgId)) return;
-        setFeedbackMap(prev => ({ ...prev, [msgId]: thumbType }));
-        const userMsg = getRelatedUserMessage(msgIndex);
+        const currentThumb = feedbackMap[msgId];
+        const isToggleOff = currentThumb === thumbType;
+
+        // Optimistic update
+        if (isToggleOff) {
+            setFeedbackMap(prev => {
+                const next = { ...prev };
+                delete next[msgId];
+                return next;
+            });
+            setSubmittedSet(prev => {
+                const next = new Set(prev);
+                next.delete(msgId);
+                return next;
+            });
+        } else {
+            setFeedbackMap(prev => ({ ...prev, [msgId]: thumbType }));
+        }
+
         try {
-            await submitFeedback({
+            const res = await submitFeedback({
                 queryId: userMsg?._id || userMsg?.id,
                 responseId: msg._id || msg.id,
                 userQuestion: userMsg?.content || '',
@@ -309,15 +348,30 @@ const ChatArea = ({
                 thumbs: thumbType,
                 description: ''
             });
-            setSubmittedSet(prev => new Set([...prev, msgId]));
+            
+            if (res && res.statusCode === 200 && res.message === 'Feedback removed') {
+                // Ensure removed if backend confirmed (already done optimistically but good for sync)
+            } else if (!isToggleOff) {
+                setSubmittedSet(prev => new Set([...prev, msgId]));
+            }
         } catch (e) {
             console.error('Feedback error:', e);
+            // Revert on error? Or just leave it.
+            if (isToggleOff) {
+                setFeedbackMap(prev => ({ ...prev, [msgId]: thumbType }));
+                setSubmittedSet(prev => new Set([...prev, msgId]));
+            } else {
+                setFeedbackMap(prev => {
+                    const next = { ...prev };
+                    delete next[msgId];
+                    return next;
+                });
+            }
         }
     };
 
-    const handleTicketClick = async (msg, msgIndex) => {
+    const handleTicketClick = async (msg, userMsg) => {
         const msgId = msg._id || msg.id;
-        const userMsg = getRelatedUserMessage(msgIndex);
         const ticketData = {
             msgId,
             queryId: userMsg?._id || userMsg?.id,
@@ -501,134 +555,150 @@ const ChatArea = ({
             </div>
 
             {/* Chat History / Home View */}
-            <div id="chatHistory" className={`flex-1 overflow-y-auto custom-scrollbar pt-16 md:pt-8 pb-4 ${messages.length === 0 ? 'flex flex-col justify-center' : ''}`} ref={scrollRef}>
-                {messages.length === 0 ? homeView : (
+            <div id="chatHistory" className={`flex-1 overflow-y-auto custom-scrollbar pt-16 md:pt-8 pb-4 ${(messages.length === 0 && !isLoading) ? 'flex flex-col justify-center' : ''}`} ref={scrollRef}>
+                {messages.length === 0 && !isLoading ? homeView : (
                     <div className="max-w-6xl mx-auto px-3 md:px-6 space-y-6 md:space-y-8 pb-4 w-full">
-                        {messages.map((msg, msgIndex) => {
-                            const isAI = msg.role === 'ai' || msg.role === 'assistant';
-                            const msgId = msg._id || msg.id;
-                            const currentThumb = feedbackMap[msgId];
+                        {groupedMessages.map((turn, turnIndex) => {
+                            const { user: userMsg, aiVersions } = turn;
+                            const currentIndex = versionIndices[turnIndex] !== undefined ? versionIndices[turnIndex] : aiVersions.length - 1;
+                            const activeAiMsg = aiVersions[currentIndex];
 
                             return (
-                                <div key={msgId} className={`flex gap-3 md:gap-6 animate-up ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                                    <div className={`w-8 h-8 rounded-lg ${isAI ? 'bg-zuari-navy shadow-lg' : (user?.gender === 'Female' || user?.gender === 'Male' ? '' : 'bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 shadow-sm')} shrink-0 flex items-center justify-center`}>
-                                        {isAI ? (
-                                            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-                                        ) : (
-                                            user?.gender === 'Female' ? (
-                                                <img src={womanImg} alt="User Avatar" className="w-full h-full object-cover rounded-lg" />
-                                            ) : user?.gender === 'Male' ? (
-                                                <img src={manImg} alt="User Avatar" className="w-full h-full object-cover rounded-lg" />
-                                            ) : (
-                                                <span className="text-[9px] font-black text-gray-400">YOU</span>
-                                            )
-                                        )}
-                                    </div>
-
-                                    <div className="space-y-1 pt-1 max-w-[calc(100%-3rem)] md:max-w-[85%] min-w-0">
-                                        <div className={`p-4 rounded-2xl overflow-x-auto custom-scrollbar ${isAI ? 'glass text-[var(--text-main)] border border-gray-100 dark:border-slate-800' : 'bg-zuari-navy text-white shadow-md'}`}>
-                                            <div className={`${msg.role === 'user' ? 'text-right' : 'font-medium'}`}>
-                                                <div
-                                                    className={`prose prose-sm max-w-none
-                                                    ${msg.role === 'user' ? 'text-white prose-p:text-white prose-headings:text-white prose-strong:text-white prose-ul:text-white prose-li:text-white' : 'prose-p:text-[var(--text-main)] prose-headings:text-[var(--text-main)] prose-strong:text-[var(--text-main)] prose-ul:text-[var(--text-main)] prose-li:text-[var(--text-main)]'}
-                                                    prose-li:marker:text-[var(--text-muted)]
-                                                    prose-p:my-1 prose-headings:my-2 prose-ul:my-2 prose-li:my-0.5
-                                                    dark:prose-invert`}
-                                                    dangerouslySetInnerHTML={{ __html: msg.content }}
-                                                />
+                                <React.Fragment key={turnIndex}>
+                                    {/* User Message */}
+                                    {userMsg && (
+                                        <div className="flex gap-3 md:gap-6 animate-up flex-row-reverse">
+                                            <div className={`w-8 h-8 rounded-lg shrink-0 flex items-center justify-center ${user?.gender === 'Female' || user?.gender === 'Male' ? '' : 'bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 shadow-sm'}`}>
+                                                {user?.gender === 'Female' ? (
+                                                    <img src={womanImg} alt="User Avatar" className="w-full h-full object-cover rounded-lg" />
+                                                ) : user?.gender === 'Male' ? (
+                                                    <img src={manImg} alt="User Avatar" className="w-full h-full object-cover rounded-lg" />
+                                                ) : (
+                                                    <span className="text-[9px] font-black text-gray-400">YOU</span>
+                                                )}
+                                            </div>
+                                            <div className="space-y-1 pt-1 max-w-[calc(100%-3rem)] md:max-w-[85%] min-w-0">
+                                                <div className="p-4 rounded-2xl bg-zuari-navy text-white shadow-md text-right">
+                                                    <div
+                                                        className="prose prose-sm max-w-none text-white prose-p:text-white prose-headings:text-white prose-strong:text-white prose-ul:text-white prose-li:text-white dark:prose-invert"
+                                                        dangerouslySetInnerHTML={{ __html: userMsg.content }}
+                                                    />
+                                                </div>
                                             </div>
                                         </div>
+                                    )}
 
-                                        {/* Feedback & Ticket — only for AI messages */}
-                                        {isAI && (
-                                            <div className="flex items-center gap-2 pt-1 pl-1 flex-wrap">
-                                                {/* Thumbs Feedback */}
-                                                {submittedSet.has(msgId) ? (
-                                                    <div title="Thanks for your feedback!" className={`flex items-center justify-center p-1.5 rounded-lg border text-xs ${currentThumb === 'down' ? 'bg-red-50 border-red-200 text-red-700 dark:bg-red-900/20 dark:border-red-700 dark:text-red-400' : 'bg-green-50 border-green-200 text-green-700 dark:bg-green-900/20 dark:border-green-700 dark:text-green-400'}`}>
-                                                        {currentThumb === 'down' ? (
-                                                            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018c.163 0 .326.02.485.06L17 4m-7 10v5a2 2 0 002 2h.095c.5 0 .905-.405.905-.904 0-.715.211-1.413.608-2.008L17 11V4m-7 10h2m-2-10h2a2 2 0 012 2v6a2 2 0 01-2 2h-2.5" />
-                                                            </svg>
-                                                        ) : (
-                                                            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.904 0 .715-.211 1.413-.608 2.008L7 13v7m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
-                                                            </svg>
+                                    {/* AI Message(s) with pagination */}
+                                    {activeAiMsg && (
+                                        <div key={activeAiMsg._id || activeAiMsg.id} className="flex gap-3 md:gap-6 animate-up">
+                                            <div className="w-8 h-8 rounded-lg bg-zuari-navy shadow-lg shrink-0 flex items-center justify-center">
+                                                <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                                            </div>
+
+                                            <div className="space-y-1 pt-1 max-w-[calc(100%-3rem)] md:max-w-[85%] min-w-0">
+                                                <div className="p-4 rounded-2xl overflow-x-auto custom-scrollbar glass text-[var(--text-main)] border border-gray-100 dark:border-slate-800 font-medium">
+                                                    <div
+                                                        className="prose prose-sm max-w-none prose-p:text-[var(--text-main)] prose-headings:text-[var(--text-main)] prose-strong:text-[var(--text-main)] prose-ul:text-[var(--text-main)] prose-li:text-[var(--text-main)] prose-li:marker:text-[var(--text-muted)] prose-p:my-1 prose-headings:my-2 prose-ul:my-2 prose-li:my-0.5 dark:prose-invert"
+                                                        dangerouslySetInnerHTML={{ __html: activeAiMsg.content }}
+                                                    />
+
+                                                    {/* Pagination Controls */}
+                                                    {aiVersions.length > 1 && (
+                                                        <div className="flex items-center gap-3 mt-4 pt-3 border-t border-gray-100/50 dark:border-slate-700/50">
+                                                            <div className="flex items-center gap-1">
+                                                                <button
+                                                                    disabled={currentIndex === 0}
+                                                                    onClick={() => setVersionIndices(prev => ({ ...prev, [turnIndex]: currentIndex - 1 }))}
+                                                                    className="p-1 rounded hover:bg-black/5 dark:hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                                                >
+                                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" /></svg>
+                                                                </button>
+                                                                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter tabular-nums">
+                                                                    {currentIndex + 1} / {aiVersions.length}
+                                                                </span>
+                                                                <button
+                                                                    disabled={currentIndex === aiVersions.length - 1}
+                                                                    onClick={() => setVersionIndices(prev => ({ ...prev, [turnIndex]: currentIndex + 1 }))}
+                                                                    className="p-1 rounded hover:bg-black/5 dark:hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                                                >
+                                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" /></svg>
+                                                                </button>
+                                                            </div>
+                                                            <span className="text-[10px] text-gray-400 font-medium">Response versions</span>
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                {/* Feedback & Ticket */}
+                                                <div className="flex items-center gap-2 pt-1 pl-1 flex-wrap">
+                                                    {/* Thumbs Feedback */}
+                                                    <div className="flex items-center gap-1.5 p-1 rounded-xl bg-gray-50/50 dark:bg-slate-900/40 border border-gray-100 dark:border-slate-800">
+                                                        {feedbackMap[activeAiMsg._id || activeAiMsg.id] !== 'down' && (
+                                                            <button 
+                                                                title={feedbackMap[activeAiMsg._id || activeAiMsg.id] === 'up' ? "Remove helpful rating" : "Mark as helpful"}
+                                                                onClick={() => handleThumb(activeAiMsg, userMsg, 'up')} 
+                                                                className={`flex items-center justify-center p-2 rounded-lg text-xs transition-all duration-300 ${
+                                                                    feedbackMap[activeAiMsg._id || activeAiMsg.id] === 'up' 
+                                                                    ? 'bg-green-500 text-white shadow-sm shadow-green-200 dark:shadow-none scale-105' 
+                                                                    : 'bg-white dark:bg-slate-800 border border-transparent text-gray-400 hover:text-green-600 hover:border-green-100 dark:hover:border-green-900/30'
+                                                                }`}
+                                                            >
+                                                                <svg className="w-4 h-4" fill={feedbackMap[activeAiMsg._id || activeAiMsg.id] === 'up' ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.904 0 .715-.211 1.413-.608 2.008L7 13v7m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
+                                                                </svg>
+                                                            </button>
+                                                        )}
+                                                        
+                                                        {feedbackMap[activeAiMsg._id || activeAiMsg.id] !== 'up' && (
+                                                            <button 
+                                                                title={feedbackMap[activeAiMsg._id || activeAiMsg.id] === 'down' ? "Remove unhelpful rating" : "Mark as unhelpful"}
+                                                                onClick={() => handleThumb(activeAiMsg, userMsg, 'down')} 
+                                                                className={`flex items-center justify-center p-2 rounded-lg text-xs transition-all duration-300 ${
+                                                                    feedbackMap[activeAiMsg._id || activeAiMsg.id] === 'down' 
+                                                                    ? 'bg-red-500 text-white shadow-sm shadow-red-200 dark:shadow-none scale-105' 
+                                                                    : 'bg-white dark:bg-slate-800 border border-transparent text-gray-400 hover:text-red-600 hover:border-red-100 dark:hover:border-red-900/30'
+                                                                }`}
+                                                            >
+                                                                <svg className="w-4 h-4" fill={feedbackMap[activeAiMsg._id || activeAiMsg.id] === 'down' ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018c.163 0 .326.02.485.06L17 4m-7 10v5a2 2 0 002 2h.095c.5 0 .905-.405.905-.904 0-.715.211-1.413.608-2.008L17 11V4m-7 10h2m-2-10h2a2 2 0 012 2v6a2 2 0 01-2 2h-2.5" />
+                                                                </svg>
+                                                            </button>
                                                         )}
                                                     </div>
-                                                ) : (
-                                                    <>
-                                                        <button
-                                                            title="Mark as helpful"
-                                                            onClick={() => handleThumb(msg, msgIndex, 'up')}
-                                                            className="flex items-center justify-center p-1.5 rounded-lg border text-xs font-semibold transition-all bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-green-300 hover:text-green-600"
-                                                        >
-                                                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.904 0 .715-.211 1.413-.608 2.008L7 13v7m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
-                                                            </svg>
-                                                        </button>
-                                                        
-                                                        <button
-                                                            title="Mark as unhelpful"
-                                                            onClick={() => handleThumb(msg, msgIndex, 'down')}
-                                                            className="flex items-center justify-center p-1.5 rounded-lg border text-xs font-semibold transition-all bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-red-300 hover:text-red-600"
-                                                        >
-                                                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018c.163 0 .326.02.485.06L17 4m-7 10v5a2 2 0 002 2h.095c.5 0 .905-.405.905-.904 0-.715.211-1.413.608-2.008L17 11V4m-7 10h2m-2-10h2a2 2 0 012 2v6a2 2 0 01-2 2h-2.5" />
-                                                            </svg>
-                                                        </button>
-                                                    </>
-                                                )}
 
-                                                {/* Retry — icon only (hidden if any feedback submitted) */}
-                                                {!submittedSet.has(msgId) && (
-                                                    <button
-                                                        title="Retry this question"
-                                                        disabled={isLoading}
-                                                        onClick={() => {
-                                                            const userMsg = getRelatedUserMessage(msgIndex);
-                                                            if (userMsg) {
-                                                                const plainText = (userMsg.content || '').replace(/<[^>]*>/g, '').trim();
-                                                                if (plainText) onSendMessage(plainText);
-                                                            }
-                                                        }}
-                                                        className={`flex items-center justify-center p-1.5 rounded-lg border text-xs font-semibold transition-all
-                                                            ${isLoading
-                                                                ? 'bg-gray-100 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-300 dark:text-gray-600 cursor-not-allowed opacity-50'
-                                                                : 'bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-blue-300 hover:text-blue-600 dark:hover:border-blue-600 dark:hover:text-blue-400'
-                                                            }`}
-                                                    >
-                                                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                                        </svg>
-                                                    </button>
-                                                )}
-
-                                                {/* Raise a Ticket / Ticket Raised - Show if not submitted OR if submitted as 'down' */}
-                                                {(!submittedSet.has(msgId) || currentThumb === 'down') && (
-                                                    ticketRaisedMap[msgId] ? (
-                                                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-semibold bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-900/20 dark:border-amber-700 dark:text-amber-400">
-                                                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                                                            </svg>
-                                                            <span>Ticket raised ({ticketRaisedMap[msgId]})</span>
-                                                        </div>
-                                                    ) : (
+                                                    {/* Retry Button — uses isRegenerate mode */}
+                                                    {(feedbackMap[activeAiMsg._id || activeAiMsg.id] !== 'up') && (
                                                         <button
-                                                            title="Raise a support ticket"
-                                                            onClick={() => handleTicketClick(msg, msgIndex)}
-                                                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-all bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-amber-300 hover:text-amber-600 dark:hover:border-amber-600 dark:hover:text-amber-400"
+                                                            title="Regenerate response"
+                                                            disabled={isLoading}
+                                                            onClick={() => {
+                                                                if (userMsg) {
+                                                                    const plainText = (userMsg.content || '').replace(/<[^>]*>/g, '').trim();
+                                                                    if (plainText) onSendMessage(plainText, true); // true = isRegenerate
+                                                                }
+                                                            }}
+                                                            className={`flex items-center justify-center p-1.5 rounded-lg border text-xs font-semibold transition-all ${isLoading ? 'bg-gray-100 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-300 dark:text-gray-600 cursor-not-allowed opacity-50' : 'bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-blue-300 hover:text-blue-600 dark:hover:border-blue-600 dark:hover:text-blue-400'}`}
                                                         >
-                                                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" />
-                                                            </svg>
-                                                            Raise a Ticket
+                                                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                                                         </button>
-                                                    )
-                                                )}
+                                                    )}
+
+                                                    {/* Raise Ticket */}
+                                                    {(!submittedSet.has(activeAiMsg._id || activeAiMsg.id) || feedbackMap[activeAiMsg._id || activeAiMsg.id] === 'down') && (
+                                                        ticketRaisedMap[activeAiMsg._id || activeAiMsg.id] ? (
+                                                            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-semibold bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-900/20 dark:border-amber-700 dark:text-amber-400">
+                                                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
+                                                                <span>Ticket raised ({ticketRaisedMap[activeAiMsg._id || activeAiMsg.id]})</span>
+                                                            </div>
+                                                        ) : (
+                                                            <button title="Raise a support ticket" onClick={() => handleTicketClick(activeAiMsg, userMsg)} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-all bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-amber-300 hover:text-amber-600 dark:hover:border-amber-600 dark:hover:text-amber-400"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" /></svg>Raise a Ticket</button>
+                                                        )
+                                                    )}
+                                                </div>
                                             </div>
-                                        )}
-                                    </div>
-                                </div>
+                                        </div>
+                                    )}
+                                </React.Fragment>
                             );
                         })}
 

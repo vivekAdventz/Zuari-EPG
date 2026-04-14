@@ -90,12 +90,12 @@ export const createConversation = async (title) => {
     }
 };
 
-export const sendMessage = async (conversationId, content, selectedPolicy = null) => {
+export const sendMessage = async (conversationId, content, selectedPolicy = null, isRegenerate = false) => {
     try {
         const response = await fetch(`${API_URL}/api/chat/message`, {
             method: 'POST',
             headers: getAuthHeaders(),
-            body: JSON.stringify({ conversationId, content, selectedPolicy }),
+            body: JSON.stringify({ conversationId, content, selectedPolicy, isRegenerate }),
         });
         const data = await response.json();
         if (!response.ok) {
@@ -1069,6 +1069,16 @@ export const getAdminTickets = async (filters = {}) => {
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Failed to fetch tickets');
     return data;
+};
+
+export const exportAdminTickets = async (filters = {}) => {
+    const queryParams = new URLSearchParams(filters).toString();
+    const res = await fetch(`${API_URL}/api/admin/tickets/export?${queryParams}`, { headers: getAuthHeaders() });
+    if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.message || 'Failed to export tickets');
+    }
+    return await res.blob();
 };
 
 export const getAdminHrOpsUsers = async () => {

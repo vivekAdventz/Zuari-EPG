@@ -1,10 +1,30 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { getHrOpsStats, getAssignedTickets } from '../../api';
+import { getHrOpsStats, getAssignedTickets, getEmployeeQuestionThemes } from '../../api';
 import TicketChatModal from '../../components/TicketChatModal';
-import { FiMessageCircle } from 'react-icons/fi';
+import { FiMessageCircle, FiSearch, FiFilter, FiCalendar, FiRefreshCw } from 'react-icons/fi';
 import { useAuth } from '../../context/AuthContext';
+
+const SelectFilter = ({ value, onChange, options, placeholder }) => (
+    <div className="relative">
+        <select
+            value={value}
+            onChange={e => onChange(e.target.value)}
+            className="appearance-none pl-3 pr-8 py-1.5 rounded-lg text-xs font-bold border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-400 shadow-sm cursor-pointer min-w-[150px]"
+        >
+            <option value="">{placeholder}</option>
+            {options.map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+        </select>
+        <div className="pointer-events-none absolute inset-y-0 right-2 flex items-center">
+            <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+            </svg>
+        </div>
+    </div>
+);
 
 const STATUS_META = {
     open:     { label: 'Open',     cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',   dot: 'bg-blue-500' },
@@ -34,16 +54,26 @@ const HrOpsOverview = () => {
     const [tickets, setTickets] = useState([]);
     const [loading, setLoading] = useState(true);
     const [statusFilter, setStatusFilter] = useState('');
+    const [categoryFilter, setCategoryFilter] = useState('');
+    const [search, setSearch] = useState('');
+    const [startDate, setStartDate] = useState('');
+    const [endDate, setEndDate] = useState('');
+    const [allThemes, setAllThemes] = useState([]);
     const [selectedTicket, setSelectedTicket] = useState(null);
     const [page, setPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
     const [limit] = useState(10);
+    const [total, setTotal] = useState(0);
 
     const fetchData = async () => {
         setLoading(true);
         try {
             const queryPayload = { page, limit };
             if (statusFilter) queryPayload.status = statusFilter;
+            if (categoryFilter) queryPayload.category = categoryFilter;
+            if (search) queryPayload.search = search;
+            if (startDate) queryPayload.startDate = startDate;
+            if (endDate) queryPayload.endDate = endDate;
 
             const [statsRes, ticketsRes] = await Promise.all([
                 getHrOpsStats(),
@@ -52,6 +82,7 @@ const HrOpsOverview = () => {
             setStats(statsRes);
             setTickets(ticketsRes.data || []);
             setTotalPages(ticketsRes.pages || 1);
+            setTotal(ticketsRes.total || 0);
         } catch (e) {
             toast.error(e.message || 'Failed to load dashboard');
         } finally {
@@ -59,12 +90,39 @@ const HrOpsOverview = () => {
         }
     };
 
-    // Ensure we refetch when page or status filter changes
+    // Ensure we refetch when page or any filter changes
     useEffect(() => {
         fetchData();
-    }, [statusFilter, page]);
+    }, [statusFilter, categoryFilter, search, startDate, endDate, page]);
 
-    // Reset page to 1 when changing filters
+    useEffect(() => {
+        const loadThemes = async () => {
+            try {
+                const themes = await getEmployeeQuestionThemes();
+                setAllThemes(themes);
+            } catch (e) {
+                console.error('Failed to load themes');
+            }
+        };
+        loadThemes();
+    }, []);
+
+    // Filter themes to only show those assigned to this HROps
+    const themeOptions = allThemes
+        .filter(t => user?.assignedThemes?.includes(t._id))
+        .map(t => ({ value: t._id, label: t.name }));
+
+    const hasActiveFilters = statusFilter || categoryFilter || search || startDate || endDate;
+
+    const resetFilters = () => {
+        setStatusFilter('');
+        setCategoryFilter('');
+        setSearch('');
+        setStartDate('');
+        setEndDate('');
+        setPage(1);
+    };
+
     const handleFilterChange = (filter) => {
         setStatusFilter(filter);
         setPage(1);
@@ -197,17 +255,79 @@ const HrOpsOverview = () => {
                     ))}
             </div>
 
-            {/* Filter tabs */}
-            <div className="flex gap-2 flex-wrap">
-                {[['', 'All'], ['open', 'Open'], ['hold', 'Hold'], ['resolved', 'Resolved']].map(([val, label]) => (
-                    <button
-                        key={val}
-                        onClick={() => handleFilterChange(val)}
-                        className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${statusFilter === val ? 'bg-zuari-navy text-white shadow' : 'bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-slate-700'}`}
-                    >
-                        {label}
-                    </button>
-                ))}
+            {/* Filter Bar */}
+            <div className="flex flex-col gap-4 p-5 bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm transition-all animate-up">
+                {/* Search Row */}
+                <div className="flex items-center justify-between flex-wrap gap-4">
+                    <div className="flex items-center gap-3 flex-1 min-w-[300px]">
+                        <div className="relative flex-1 group">
+                            <FiSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-blue-500 transition-colors" size={16} />
+                            <input 
+                                type="text"
+                                placeholder="Search by Employee Name, Subject, Description..."
+                                value={search}
+                                onChange={e => { setSearch(e.target.value); setPage(1); }}
+                                className="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-slate-900 border border-transparent focus:border-blue-500 dark:border-slate-700 rounded-xl text-sm transition-all focus:ring-4 focus:ring-blue-500/10 placeholder:text-gray-400 font-medium"
+                            />
+                        </div>
+                        {hasActiveFilters && (
+                            <button
+                                onClick={resetFilters}
+                                className="px-4 py-2.5 rounded-xl text-xs font-bold text-rose-500 bg-rose-50 dark:bg-rose-900/10 border border-rose-100 dark:border-rose-900/30 hover:bg-rose-100 transition-all flex items-center gap-2"
+                            >
+                                <span>✕</span> Reset
+                            </button>
+                        )}
+                    </div>
+                </div>
+
+                <div className="h-px bg-gray-50 dark:bg-slate-700/50 w-full" />
+
+                {/* Sub Filters Row */}
+                <div className="flex gap-4 flex-wrap items-center">
+                    <div className="flex items-center gap-2 text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest whitespace-nowrap">
+                        <FiFilter size={12} /> Status
+                    </div>
+                    <div className="flex gap-1.5 p-1 bg-gray-50 dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-700">
+                        {[['', 'All'], ['open', 'Open'], ['hold', 'Hold'], ['resolved', 'Resolved']].map(([val, label]) => (
+                            <button
+                                key={val}
+                                onClick={() => handleFilterChange(val)}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${statusFilter === val ? 'bg-white dark:bg-slate-800 text-blue-600 shadow-sm border border-gray-100 dark:border-slate-600' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'}`}
+                            >{label}</button>
+                        ))}
+                    </div>
+
+                    <div className="h-4 w-px bg-gray-200 dark:bg-slate-700 mx-1" />
+
+                    <div className="flex items-center gap-2 text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest whitespace-nowrap">
+                        <FiCalendar size={12} /> Date Range
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <input 
+                            type="date"
+                            value={startDate}
+                            onChange={e => { setStartDate(e.target.value); setPage(1); }}
+                            className="px-3 py-1.5 rounded-lg text-xs font-bold border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        />
+                        <span className="text-gray-400 text-xs font-bold">to</span>
+                        <input 
+                            type="date"
+                            value={endDate}
+                            onChange={e => { setEndDate(e.target.value); setPage(1); }}
+                            className="px-3 py-1.5 rounded-lg text-xs font-bold border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        />
+                    </div>
+
+                    <div className="h-4 w-px bg-gray-200 dark:bg-slate-700 mx-1" />
+
+                    <SelectFilter
+                        value={categoryFilter}
+                        onChange={v => { setCategoryFilter(v); setPage(1); }}
+                        options={themeOptions}
+                        placeholder="All Assigned Categories"
+                    />
+                </div>
             </div>
 
             {/* Table */}
