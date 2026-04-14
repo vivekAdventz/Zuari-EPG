@@ -41,7 +41,7 @@ import {
     getPolicyCategories, createPolicyCategory, updatePolicyCategory, deletePolicyCategory,
     getQuestionThemes,
 } from '../controllers/configController.js';
-import { getQueryFeedbacks, getUserFeedbacks } from '../controllers/feedbackController.js';
+import { getQueryFeedbacks, getUserFeedbacks, getConversationsWithFeedback } from '../controllers/feedbackController.js';
 import { protect } from '../middleware/authMiddleware.js';
 
 // Admin middleware to ensure user is admin
@@ -192,6 +192,7 @@ router.patch('/hrops/closure', protect, admin, updateThemeClosure);
 // Feedback
 router.get('/feedbacks/queries', protect, admin, getQueryFeedbacks);
 router.get('/feedbacks/users', protect, admin, getUserFeedbacks);
+router.get('/feedbacks/conversations', protect, admin, getConversationsWithFeedback);
 
 // Ticket Monitor (Admin View)
 router.get('/tickets/stats', protect, admin, getGlobalTicketStats);

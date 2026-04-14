@@ -1095,3 +1095,10 @@ export const getAdminThemes = async () => {
     if (!res.ok) throw new Error(data.message || 'Failed to fetch themes');
     return data.data || [];
 };
+
+export const getConversationsWithFeedback = async (page = 1) => {
+    const res = await fetch(`${API_URL}/api/admin/feedbacks/conversations?page=${page}`, { headers: getAuthHeaders() });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to fetch conversations feedback');
+    return data.data || [];
+};

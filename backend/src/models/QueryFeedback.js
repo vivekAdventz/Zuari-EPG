@@ -42,6 +42,14 @@ const queryFeedbackSchema = new mongoose.Schema(
             enum: ['up', 'down'],
             required: true
         },
+        conversationId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Conversation'
+        },
+        selectedChips: {
+            type: [String],
+            default: []
+        },
         description: {
             type: String,
             default: ''

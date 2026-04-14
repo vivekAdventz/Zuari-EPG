@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getInsightsFeedbackAnalysis, exportInsightsFeedbackAnalysisCSV } from '../../api';
+import { getInsightsFeedbackAnalysis, exportInsightsFeedbackAnalysisCSV, getConversationsWithFeedback } from '../../api';
 
 const AdminFeedbackAnalysis = () => {
     const [data, setData] = useState(null);
@@ -15,6 +15,10 @@ const AdminFeedbackAnalysis = () => {
     const [availableEntities, setAvailableEntities] = useState([]);
     const [availableLevels, setAvailableLevels] = useState([]);
 
+    // Conversations with feedback
+    const [conversations, setConversations] = useState([]);
+    const [expandedConv, setExpandedConv] = useState({}); // convId -> boolean
+
     const fetchData = async (isInitial = false) => {
         if (isInitial) setLoading(true);
         try {
@@ -26,9 +30,6 @@ const AdminFeedbackAnalysis = () => {
             setData(result);
             if (result.filters) {
                 setAvailableEntities(result.filters.entities || []);
-                // Only update availableLevels if entityFilter is 'all' or if the entityFilter matches the current entity
-                // This ensures that when an entity is selected, we get levels specific to that entity.
-                // When entityFilter is 'all', we get all levels.
                 if (entityFilter === 'all' || result.filters.entities.includes(entityFilter)) {
                     setAvailableLevels(result.filters.levels || []);
                 }
@@ -40,9 +41,20 @@ const AdminFeedbackAnalysis = () => {
         }
     };
 
+    const fetchConversations = async () => {
+        try {
+            const result = await getConversationsWithFeedback();
+            console.log("Conversations Feedback:", result);
+            setConversations(result || []);
+        } catch (error) {
+            console.error("Failed to fetch conversations feedback:", error);
+        }
+    };
+
     // Initial load
     useEffect(() => {
         fetchData(true);
+        fetchConversations();
     }, []);
 
     // When entity changes, we MUST fetch to get new levels
@@ -380,6 +392,144 @@ const AdminFeedbackAnalysis = () => {
                         </table>
                     ) : (
                         <div className="p-12 text-center text-slate-400 italic">No suggestions submitted recently.</div>
+                    )}
+                </div>
+                <div className="p-4 bg-slate-50 dark:bg-slate-800 flex justify-center border-t border-slate-100 dark:border-slate-700">
+                    <div className="w-24 h-1 bg-slate-200 dark:bg-slate-700 rounded-full"></div>
+                </div>
+            </div>
+
+            {/* Conversation History Section */}
+            <div className="bg-white dark:bg-slate-800 rounded-[32px] border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden border-b-4">
+                <div className="p-8 border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/10">
+                    <h2 className="text-base font-black text-slate-900 dark:text-white uppercase tracking-tight">Conversation History & Context</h2>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Detailed audit of conversations with feedback</p>
+                </div>
+                
+                <div className="overflow-x-auto">
+                    {conversations.length > 0 ? (
+                        <table className="w-full text-left border-collapse">
+                            <thead className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700">
+                                <tr>
+                                    <th className="py-4 px-6 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest w-24">Thumb</th>
+                                    <th className="py-4 px-6 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest w-48">Employee</th>
+                                    <th className="py-4 px-6 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest w-48">Email/Entity</th>
+                                    <th className="py-4 px-6 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Feedback Chips & Description</th>
+                                    <th className="py-4 px-6 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest w-40 text-right">Date</th>
+                                    <th className="py-4 px-6 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest w-24 text-center">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                                {conversations.map((conv) => {
+                                    // Extract user info from the first feedback record if available
+                                    const userInfo = conv.feedbackRecords?.[0] || {};
+                                    const userName = userInfo.userName || conv.messages?.[0]?.senderName || 'Anonymous';
+                                    const userMail = userInfo.userMail || 'N/A';
+                                    const userEntity = userInfo.userEntity || 'N/A';
+
+                                    return (
+                                        <React.Fragment key={conv._id}>
+                                            <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-700/30 transition-all group">
+                                                <td className="py-4 px-6">
+                                                    <div className="flex gap-1 justify-center">
+                                                        {conv.feedbackRecords?.map((f, i) => (
+                                                            <span key={i} className={`p-1.5 rounded-lg border ${f.thumbs === 'up' ? 'text-emerald-600 bg-emerald-50 border-emerald-100' : 'text-rose-600 bg-rose-50 border-rose-100'}`}>
+                                                                {f.thumbs === 'up' ? (
+                                                                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.904 0 .715-.211 1.413-.608 2.008L7 13v7m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" /></svg>
+                                                                ) : (
+                                                                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018c.163 0 .326.02.485.06L17 4m-7 10v5a2 2 0 002 2h.095c.5 0 .905-.405.905-.904 0-.715.211-1.413.608-2.008L17 11V4m-7 10h2m-2-10h2a2 2 0 012 2v6a2 2 0 01-2 2h-2.5" /></svg>
+                                                                )}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                </td>
+                                                <td className="py-4 px-6">
+                                                    <div className="flex flex-col">
+                                                        <span className="text-xs font-black text-slate-800 dark:text-white uppercase tracking-wider">{userName}</span>
+                                                        <span className="text-[9px] font-bold text-slate-400 mt-0.5">{conv.title || 'Untitled Session'}</span>
+                                                    </div>
+                                                </td>
+                                                <td className="py-4 px-6">
+                                                    <div className="flex flex-col">
+                                                        <span className="text-[10px] font-bold text-slate-600 dark:text-slate-400">{userMail}</span>
+                                                        <span className="text-[9px] font-black text-blue-500 dark:text-blue-400 uppercase tracking-widest mt-0.5">{userEntity}</span>
+                                                    </div>
+                                                </td>
+                                                <td className="py-4 px-6">
+                                                    <div className="flex flex-col gap-2">
+                                                        <div className="flex flex-wrap gap-1">
+                                                            {[...new Set(conv.feedbackRecords?.flatMap(f => f.selectedChips || []) || [])].map(chip => (
+                                                                <span key={chip} className="text-[8px] font-black px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 uppercase tracking-tighter">
+                                                                    {chip}
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                        {conv.feedbackRecords?.map((f, fi) => f.description && (
+                                                            <div key={fi} className="text-[10px] italic text-slate-500 border-l-2 border-slate-200 pl-2 py-0.5 bg-slate-50/50 rounded-r-md">
+                                                                "{f.description}"
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </td>
+                                            <td className="py-4 px-6 text-right">
+                                                <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">
+                                                    {new Date(conv.updatedAt).toLocaleDateString()}
+                                                </span>
+                                            </td>
+                                            <td className="py-4 px-6 text-center">
+                                                <button 
+                                                    onClick={() => setExpandedConv(prev => ({ ...prev, [conv._id]: !prev[conv._id] }))}
+                                                    className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+                                                >
+                                                    <svg className={`w-5 h-5 transition-transform ${expandedConv[conv._id] ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                                                    </svg>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                            {expandedConv[conv._id] && (
+                                                <tr>
+                                                    <td colSpan="6" className="px-6 pb-6 bg-slate-50/30 dark:bg-slate-900/20">
+                                                    <div className="mt-4 space-y-4 max-h-[400px] overflow-y-auto custom-scrollbar p-4 rounded-2xl border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900/40">
+                                                        {conv.messages?.map((msg, midx) => (
+                                                            <div key={midx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                                                <div className={`max-w-[80%] rounded-2xl p-4 text-xs ${
+                                                                    msg.role === 'user' 
+                                                                    ? 'bg-blue-600 text-white rounded-tr-none' 
+                                                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-tl-none border border-slate-200 dark:border-slate-700'
+                                                                }`}>
+                                                                    <div dangerouslySetInnerHTML={{ __html: msg.content }} />
+                                                                    
+                                                                    {/* Show feedback if this message has some */}
+                                                                    {conv.feedbackRecords?.find(f => f.responseId === msg._id) && (
+                                                                        <div className="mt-4 pt-3 border-t border-slate-200/50 dark:border-slate-700/50">
+                                                                            <div className="flex flex-wrap gap-2 text-[10px] font-black uppercase text-rose-500">
+                                                                                <span>Feedback: {conv.feedbackRecords.find(f => f.responseId === msg._id).thumbs}</span>
+                                                                                {conv.feedbackRecords.find(f => f.responseId === msg._id).selectedChips?.map(c => (
+                                                                                    <span key={c}>• {c}</span>
+                                                                                ))}
+                                                                            </div>
+                                                                            {conv.feedbackRecords.find(f => f.responseId === msg._id).description && (
+                                                                                <div className="mt-2 p-2 bg-rose-50/50 dark:bg-rose-900/10 rounded-lg italic text-slate-500 dark:text-slate-400">
+                                                                                    "{conv.feedbackRecords.find(f => f.responseId === msg._id).description}"
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </React.Fragment>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                    ) : (
+                        <div className="p-12 text-center text-slate-400 italic">No conversation feedback history available yet.</div>
                     )}
                 </div>
                 <div className="p-4 bg-slate-50 dark:bg-slate-800 flex justify-center border-t border-slate-100 dark:border-slate-700">
