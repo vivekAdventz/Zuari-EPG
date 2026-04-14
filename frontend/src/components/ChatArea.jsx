@@ -1,17 +1,40 @@
 import React, { useRef, useEffect, useState } from 'react';
+import FeedbackModal from './FeedbackModal';
 import DOMPurify from 'dompurify';
 import manImg from '../assets/man.png';
 import womanImg from '../assets/woman.png';
-import { submitFeedback, raiseTicket as raiseTicketApi, evaluateTicket as evaluateTicketApi } from '../api';
+import {
+  ChevronRight,
+  ChevronLeft,
+  Send,
+  CheckCircle2,
+  Zap,
+  Clock,
+  UserCheck,
+  FileText
+} from 'lucide-react';
+import { 
+    submitFeedback, 
+    raiseTicket as raiseTicketApi, 
+    evaluateTicket as evaluateTicketApi,
+    getEmployeeQuestionThemes,
+    generateTicketFields,
+    evaluateIndependentTicket
+} from '../api';
 
 const RaiseTicketModal = ({ question, answer, onClose, onRaise }) => {
     const [raising, setRaising] = useState(false);
     const [error, setError] = useState('');
     const [desc, setDesc] = useState('');
 
+    const getWordCount = (text) => {
+        return text.trim().split(/\s+/).filter(word => word.length > 0).length;
+    };
+
     const handleRaise = async () => {
-        if (!desc.trim()) {
-            setError('Description is required. Please explain what you need help with.');
+        const wordCount = getWordCount(desc);
+        if (wordCount < 25) {
+            setError(`Description must be at least 25 words to raise a ticket (current: ${wordCount})`);
             return;
         }
         setRaising(true);
@@ -30,8 +53,8 @@ const RaiseTicketModal = ({ question, answer, onClose, onRaise }) => {
                 {/* Header */}
                 <div className="flex items-center justify-between mb-5">
                     <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
-                            <svg className="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <div className="w-10 h-10 rounded-xl bg-zuari-navy flex items-center justify-center shrink-0">
+                            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" />
                             </svg>
                         </div>
@@ -72,7 +95,7 @@ const RaiseTicketModal = ({ question, answer, onClose, onRaise }) => {
                 <div className="mb-4">
                     <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1.5">Description <span className="text-red-400">*</span></p>
                     <textarea
-                        className="w-full rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 text-gray-800 dark:text-white text-sm p-3 outline-none focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400 resize-none transition-all"
+                        className="w-full rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 text-gray-800 dark:text-white text-sm p-3 outline-none focus:ring-2 focus:ring-blue-400/30 focus:border-zuari-navy resize-none transition-all"
                         rows={3}
                         placeholder="Describe what you need help with..."
                         value={desc}
@@ -93,7 +116,7 @@ const RaiseTicketModal = ({ question, answer, onClose, onRaise }) => {
                     <button
                         onClick={handleRaise}
                         disabled={raising}
-                        className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold transition-all disabled:opacity-70"
+                        className="flex-1 py-2.5 rounded-xl bg-zuari-navy hover:bg-[#122856] text-white text-sm font-semibold transition-all disabled:opacity-70"
                     >
                         {raising ? 'Raising...' : 'Raise Ticket'}
                     </button>
@@ -137,7 +160,7 @@ const TicketSuccessModal = ({ ticket, onClose }) => (
     </div>
 );
 
-const TicketQAModal = ({ evaluation, evaluating, error, onProceed, onClose }) => (
+const TicketQAModal = ({ evaluation, evaluating, error, onProceed, onGotIt, onClose }) => (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm">
         <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-gray-100 dark:border-slate-700 w-full max-w-md mx-4 p-6 animate-up relative">
             <button onClick={onClose} className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 dark:hover:bg-slate-700 rounded-xl transition-all">
@@ -146,8 +169,8 @@ const TicketQAModal = ({ evaluation, evaluating, error, onProceed, onClose }) =>
 
             {/* Header */}
             <div className="flex items-center gap-3 mb-5">
-                <div className="w-10 h-10 rounded-xl bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
-                    <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="w-10 h-10 rounded-xl bg-zuari-navy flex items-center justify-center shrink-0">
+                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                     </svg>
                 </div>
@@ -159,7 +182,7 @@ const TicketQAModal = ({ evaluation, evaluating, error, onProceed, onClose }) =>
 
             {evaluating ? (
                 <div className="py-8 text-center">
-                    <div className="w-10 h-10 border-3 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-4"></div>
+                    <div className="w-10 h-10 border-3 border-blue-200 border-t-zuari-navy rounded-full animate-spin mx-auto mb-4"></div>
                     <p className="text-sm font-semibold text-gray-600 dark:text-gray-300">Analyzing your conversation...</p>
                     <p className="text-xs text-gray-400 mt-1">Our AI is checking if a ticket is needed</p>
                 </div>
@@ -168,7 +191,7 @@ const TicketQAModal = ({ evaluation, evaluating, error, onProceed, onClose }) =>
                     <p className="text-sm text-red-500 mb-4">{error}</p>
                     <div className="flex gap-3">
                         <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 text-sm font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-all">Cancel</button>
-                        <button onClick={onProceed} className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold transition-all">Proceed Anyway</button>
+                        <button onClick={onProceed} className="flex-1 py-2.5 rounded-xl bg-zuari-navy hover:bg-[#122856] text-white text-sm font-semibold transition-all">Proceed Anyway</button>
                     </div>
                 </div>
             ) : evaluation ? (
@@ -190,8 +213,8 @@ const TicketQAModal = ({ evaluation, evaluating, error, onProceed, onClose }) =>
                                     {evaluation.necessary ? 'Ticket may be needed' : 'AI response seems sufficient'}
                                 </p>
                                 <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-                                    {evaluation.necessary 
-                                        ? evaluation.reason 
+                                    {evaluation.necessary
+                                        ? evaluation.reason
                                         : "That AI response is sufficient and we don't feel there is any query that needs to be raised. If you still feel the need to raise a ticket pls click on raise anyway below button then click on raise a ticket"}
                                 </p>
                             </div>
@@ -201,17 +224,20 @@ const TicketQAModal = ({ evaluation, evaluating, error, onProceed, onClose }) =>
                     {/* Suggestion (when ticket not necessary) */}
                     {!evaluation.necessary && evaluation.suggestion && (
                         <div className="bg-blue-50/60 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-800/30 rounded-xl px-4 py-3 mb-4">
-                            <p className="text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider mb-1">Suggestion</p>
+                            <p className="text-xs font-bold text-zuari-navy uppercase tracking-wider mb-1">Suggestion</p>
                             <p className="text-sm text-blue-700 dark:text-blue-300">{evaluation.suggestion}</p>
                         </div>
                     )}
 
                     {/* Actions */}
                     <div className="flex gap-3">
-                        <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 text-sm font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-all">
+                        <button 
+                            onClick={evaluation.necessary ? onClose : onGotIt} 
+                            className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 text-sm font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-all text-center"
+                        >
                             {evaluation.necessary ? 'Cancel' : 'Got it, no ticket needed'}
                         </button>
-                        <button onClick={onProceed} className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold transition-all">
+                        <button onClick={onProceed} className="flex-1 py-2.5 rounded-xl bg-zuari-navy hover:bg-[#122856] text-white text-sm font-semibold transition-all">
                             {evaluation.necessary ? 'Proceed to Raise Ticket' : 'Raise Anyway'}
                         </button>
                     </div>
@@ -220,6 +246,7 @@ const TicketQAModal = ({ evaluation, evaluating, error, onProceed, onClose }) =>
         </div>
     </div>
 );
+
 
 const ChatArea = ({
     messages, isLoading, onSendMessage, user, toggleSidebar,
@@ -233,15 +260,34 @@ const ChatArea = ({
     // Feedback states
     const [feedbackMap, setFeedbackMap] = useState({}); // msgId -> 'up'
     const [submittedSet, setSubmittedSet] = useState(new Set()); // msgIds with submitted thumbs-up
+    const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
+    const [pendingFeedback, setPendingFeedback] = useState(null);
     // Ticket states
     const [ticketModal, setTicketModal] = useState(null); // { msgId, queryId, responseId, question, answer }
     const [ticketRaisedMap, setTicketRaisedMap] = useState({}); // msgId -> ticketNumber
     const [successTicket, setSuccessTicket] = useState(null); // ticket data for success modal
     // QA evaluation states
-    const [qaModal, setQaModal] = useState(null); // { msgId, queryId, responseId, question, answer }
     const [qaEvaluation, setQaEvaluation] = useState(null);
     const [qaEvaluating, setQaEvaluating] = useState(false);
     const [qaError, setQaError] = useState('');
+
+    // Group messages into turns (each turn has one user question and multiple AI response versions)
+    const groupedMessages = [];
+    (messages || []).forEach((msg) => {
+        if (!msg) return;
+        if (msg.role === 'user') {
+            groupedMessages.push({ user: msg, aiVersions: [] });
+        } else if (msg.role === 'ai' || msg.role === 'assistant') {
+            const lastTurn = groupedMessages[groupedMessages.length - 1];
+            if (lastTurn) {
+                lastTurn.aiVersions.push(msg);
+            } else {
+                groupedMessages.push({ user: null, aiVersions: [msg] });
+            }
+        }
+    });
+
+    const [versionIndices, setVersionIndices] = useState({}); // turnIndex -> currentVersionIndex
 
     // Populate persisted feedback & ticket states from backend
     useEffect(() => {
@@ -268,10 +314,25 @@ const ChatArea = ({
     }, [initialFeedbackIds, initialTicketMap]);
 
     useEffect(() => {
-        if (scrollRef.current) {
-            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+        const loadCategories = async () => {
+            try {
+                const themes = await getEmployeeQuestionThemes();
+                setCategories(themes || []);
+            } catch (e) {
+                console.error('Failed to load categories:', e);
+            }
+        };
+        loadCategories();
+    }, []);
+
+    useEffect(() => {
+        if (messages.length > 0) {
+            scrollRef.current?.scrollTo({
+                top: scrollRef.current.scrollHeight,
+                behavior: 'smooth'
+            });
         }
-    }, [messages, isLoading]);
+    }, [messages]);
 
     const handleSubmit = (e) => {
         e.preventDefault();
@@ -295,11 +356,71 @@ const ChatArea = ({
         return null;
     };
 
-    const handleThumb = async (msg, msgIndex, thumbType) => {
+    const handleThumb = async (msg, userMsg, thumbType) => {
         const msgId = msg._id || msg.id;
-        if (submittedSet.has(msgId)) return;
+        const currentThumb = feedbackMap[msgId];
+        const isToggleOff = currentThumb === thumbType;
+
+        // If clicking 'down' and it's not a toggle off, open the modal
+        if (thumbType === 'down' && !isToggleOff) {
+            setPendingFeedback({ msg, userMsg, thumbType });
+            setIsFeedbackModalOpen(true);
+            return;
+        }
+
+        // Optimistic update
+        if (isToggleOff) {
+            setFeedbackMap(prev => {
+                const next = { ...prev };
+                delete next[msgId];
+                return next;
+            });
+            setSubmittedSet(prev => {
+                const next = new Set(prev);
+                next.delete(msgId);
+                return next;
+            });
+        } else {
+            setFeedbackMap(prev => ({ ...prev, [msgId]: thumbType }));
+        }
+
+        try {
+            const res = await submitFeedback({
+                queryId: userMsg?._id || userMsg?.id,
+                responseId: msg._id || msg.id,
+                userQuestion: userMsg?.content || '',
+                aiResponse: msg.content,
+                thumbs: thumbType,
+                conversationId: userMsg?.conversationId || msg?.conversationId || messages?.[0]?.conversationId || null,
+                description: ''
+            });
+
+            if (res && res.statusCode === 200 && res.message === 'Feedback removed') {
+                // Already done optimistically
+            } else if (!isToggleOff) {
+                setSubmittedSet(prev => new Set([...prev, msgId]));
+            }
+        } catch (e) {
+            console.error('Feedback error:', e);
+            if (isToggleOff) {
+                setFeedbackMap(prev => ({ ...prev, [msgId]: thumbType }));
+                setSubmittedSet(prev => new Set([...prev, msgId]));
+            } else {
+                setFeedbackMap(prev => {
+                    const next = { ...prev };
+                    delete next[msgId];
+                    return next;
+                });
+            }
+        }
+    };
+
+    const handleFeedbackSubmit = async ({ selectedChips, details, msg, userMsg, thumbType }) => {
+        const msgId = msg._id || msg.id;
+
+        // Optimistic update
         setFeedbackMap(prev => ({ ...prev, [msgId]: thumbType }));
-        const userMsg = getRelatedUserMessage(msgIndex);
+
         try {
             await submitFeedback({
                 queryId: userMsg?._id || userMsg?.id,
@@ -307,112 +428,90 @@ const ChatArea = ({
                 userQuestion: userMsg?.content || '',
                 aiResponse: msg.content,
                 thumbs: thumbType,
-                description: ''
+                conversationId: userMsg?.conversationId || msg?.conversationId || messages?.[0]?.conversationId || null,
+                selectedChips,
+                description: details
             });
             setSubmittedSet(prev => new Set([...prev, msgId]));
         } catch (e) {
-            console.error('Feedback error:', e);
+            console.error('Detailed feedback error:', e);
+            setFeedbackMap(prev => {
+                const next = { ...prev };
+                delete next[msgId];
+                return next;
+            });
         }
     };
 
-    const handleTicketClick = async (msg, msgIndex) => {
-        const msgId = msg._id || msg.id;
-        const userMsg = getRelatedUserMessage(msgIndex);
-        const ticketData = {
-            msgId,
+    const handleTicketClick = async (msg, userMsg) => {
+        setQaEvaluation(null);
+        setQaEvaluating(true);
+        setQaError('');
+        setTicketModal({
+            msg,
+            userMsg,
+            msgId: msg._id || msg.id,
             queryId: userMsg?._id || userMsg?.id,
             responseId: msg._id || msg.id,
             question: userMsg?.content || '',
-            answer: msg.content,
-        };
-
-        const aiResponseLower = (msg.content || '').toLowerCase();
-        if (aiResponseLower.includes('not covered') || aiResponseLower.includes('not available for your employee profile')) {
-            setTicketModal(ticketData);
-            return;
-        }
-
-        // Open QA evaluation modal and start evaluation
-        setQaModal(ticketData);
-        setQaEvaluation(null);
-        setQaError('');
-        setQaEvaluating(true);
+            answer: msg.content
+        });
 
         try {
-            // Build conversation context for evaluation
-            const conversationMessages = messages.map(m => ({
-                role: m.role,
-                content: (m.content || '').replace(/<[^>]*>/g, '').substring(0, 500),
-            }));
-
-            const result = await evaluateTicketApi({
-                conversationMessages,
+            const evaluation = await evaluateTicketApi({
                 userQuestion: userMsg?.content || '',
-                aiResponse: (msg.content || '').replace(/<[^>]*>/g, '').substring(0, 2000),
-                selectedPolicy: selectedPolicyTitle || '',
+                aiResponse: msg.content
             });
-            setQaEvaluation(result);
+            setQaEvaluation(evaluation);
         } catch (e) {
-            setQaError(e.message || 'Evaluation failed.');
+            console.error('QA Evaluation error:', e);
+            setQaError('Failed to perform Quality Check. You can still proceed to raise a ticket.');
         } finally {
             setQaEvaluating(false);
         }
     };
 
-    const handleQaClose = async () => {
-        // If AI response was sufficient and user clicks "Got it, no ticket needed", auto thumbs-up
-        if (qaEvaluation && !qaEvaluation.necessary && qaModal) {
-            const { msgId, queryId, responseId, question, answer } = qaModal;
-            if (!submittedSet.has(msgId)) {
-                setFeedbackMap(prev => ({ ...prev, [msgId]: 'up' }));
-                try {
-                    await submitFeedback({
-                        queryId,
-                        responseId,
-                        userQuestion: question || '',
-                        aiResponse: answer || '',
-                        thumbs: 'up',
-                        description: ''
-                    });
-                    setSubmittedSet(prev => new Set([...prev, msgId]));
-                } catch (e) {
-                    console.error('Auto-feedback error:', e);
-                }
-            }
+    const handleQaGotIt = () => {
+        if (ticketModal) {
+            handleThumb(ticketModal.msg, ticketModal.userMsg, 'up');
         }
-        setQaModal(null);
         setQaEvaluation(null);
         setQaError('');
+        setTicketModal(null);
     };
 
     const handleQaProceed = () => {
-        // If AI was sufficient but user clicks "Raise Anyway", go to tickets tab
+        // If evaluation was "sufficient" but user clicked "Raise Anyway", navigate to tickets section
         if (qaEvaluation && !qaEvaluation.necessary) {
-            setQaModal(null);
+            onOpenTickets();
+            // Reset QA states so modal closes
             setQaEvaluation(null);
             setQaError('');
-            onOpenTickets?.();
+            setTicketModal(null);
             return;
         }
-        // Otherwise (ticket necessary or error flow), open RaiseTicketModal
-        setTicketModal(qaModal);
-        setQaModal(null);
+        
+        // Original behavior: Keeps the ticketModal open but moves to the Raise form locally
         setQaEvaluation(null);
         setQaError('');
     };
 
     const handleRaiseTicket = async (description) => {
         if (!ticketModal) return;
-        const ticket = await raiseTicketApi({
-            queryId: ticketModal.queryId,
-            responseId: ticketModal.responseId,
-            userQuestion: ticketModal.question,
-            aiResponse: ticketModal.answer,
-            description: description || '',
-        });
-        setTicketRaisedMap(prev => ({ ...prev, [ticketModal.msgId]: ticket.ticketNumber }));
-        setTicketModal(null);
-        setSuccessTicket(ticket);
+        try {
+            const ticket = await raiseTicketApi({
+                queryId: ticketModal.queryId,
+                responseId: ticketModal.responseId,
+                userQuestion: ticketModal.question,
+                aiResponse: ticketModal.answer,
+                description
+            });
+            setTicketRaisedMap(prev => ({ ...prev, [ticketModal.msgId]: ticket.ticketNumber }));
+            setSuccessTicket(ticket);
+            setTicketModal(null);
+        } catch (e) {
+            throw e;
+        }
     };
 
     const displayFaqs = dynamicFaqs?.length > 0 ? dynamicFaqs.slice(0, 8) : [];
@@ -464,34 +563,6 @@ const ChatArea = ({
 
     return (
         <div className="flex-1 flex flex-col h-full bg-transparent relative overflow-hidden">
-            {/* QA Evaluation Modal */}
-            {qaModal && (
-                <TicketQAModal
-                    evaluation={qaEvaluation}
-                    evaluating={qaEvaluating}
-                    error={qaError}
-                    onProceed={handleQaProceed}
-                    onClose={handleQaClose}
-                />
-            )}
-
-            {/* Raise Ticket Modal */}
-            {ticketModal && (
-                <RaiseTicketModal
-                    question={ticketModal.question}
-                    answer={ticketModal.answer}
-                    onClose={() => setTicketModal(null)}
-                    onRaise={handleRaiseTicket}
-                />
-            )}
-
-            {/* Ticket Success Modal */}
-            {successTicket && (
-                <TicketSuccessModal
-                    ticket={successTicket}
-                    onClose={() => setSuccessTicket(null)}
-                />
-            )}
 
             {/* Header Removed */}
             <div className="absolute top-4 left-4 z-50 md:hidden">
@@ -501,134 +572,148 @@ const ChatArea = ({
             </div>
 
             {/* Chat History / Home View */}
-            <div id="chatHistory" className={`flex-1 overflow-y-auto custom-scrollbar pt-16 md:pt-8 pb-4 ${messages.length === 0 ? 'flex flex-col justify-center' : ''}`} ref={scrollRef}>
-                {messages.length === 0 ? homeView : (
+            <div id="chatHistory" className={`flex-1 overflow-y-auto custom-scrollbar pt-16 md:pt-8 pb-4 ${(messages.length === 0 && !isLoading) ? 'flex flex-col justify-center' : ''}`} ref={scrollRef}>
+                {messages.length === 0 && !isLoading ? homeView : (
                     <div className="max-w-6xl mx-auto px-3 md:px-6 space-y-6 md:space-y-8 pb-4 w-full">
-                        {messages.map((msg, msgIndex) => {
-                            const isAI = msg.role === 'ai' || msg.role === 'assistant';
-                            const msgId = msg._id || msg.id;
-                            const currentThumb = feedbackMap[msgId];
+                        {groupedMessages.map((turn, turnIndex) => {
+                            const { user: userMsg, aiVersions } = turn;
+                            const currentIndex = versionIndices[turnIndex] !== undefined ? versionIndices[turnIndex] : aiVersions.length - 1;
+                            const activeAiMsg = aiVersions[currentIndex];
 
                             return (
-                                <div key={msgId} className={`flex gap-3 md:gap-6 animate-up ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                                    <div className={`w-8 h-8 rounded-lg ${isAI ? 'bg-zuari-navy shadow-lg' : (user?.gender === 'Female' || user?.gender === 'Male' ? '' : 'bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 shadow-sm')} shrink-0 flex items-center justify-center`}>
-                                        {isAI ? (
-                                            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-                                        ) : (
-                                            user?.gender === 'Female' ? (
-                                                <img src={womanImg} alt="User Avatar" className="w-full h-full object-cover rounded-lg" />
-                                            ) : user?.gender === 'Male' ? (
-                                                <img src={manImg} alt="User Avatar" className="w-full h-full object-cover rounded-lg" />
-                                            ) : (
-                                                <span className="text-[9px] font-black text-gray-400">YOU</span>
-                                            )
-                                        )}
-                                    </div>
-
-                                    <div className="space-y-1 pt-1 max-w-[calc(100%-3rem)] md:max-w-[85%] min-w-0">
-                                        <div className={`p-4 rounded-2xl overflow-x-auto custom-scrollbar ${isAI ? 'glass text-[var(--text-main)] border border-gray-100 dark:border-slate-800' : 'bg-zuari-navy text-white shadow-md'}`}>
-                                            <div className={`${msg.role === 'user' ? 'text-right' : 'font-medium'}`}>
-                                                <div
-                                                    className={`prose prose-sm max-w-none
-                                                    ${msg.role === 'user' ? 'text-white prose-p:text-white prose-headings:text-white prose-strong:text-white prose-ul:text-white prose-li:text-white' : 'prose-p:text-[var(--text-main)] prose-headings:text-[var(--text-main)] prose-strong:text-[var(--text-main)] prose-ul:text-[var(--text-main)] prose-li:text-[var(--text-main)]'}
-                                                    prose-li:marker:text-[var(--text-muted)]
-                                                    prose-p:my-1 prose-headings:my-2 prose-ul:my-2 prose-li:my-0.5
-                                                    dark:prose-invert`}
-                                                    dangerouslySetInnerHTML={{ __html: msg.content }}
-                                                />
+                                <React.Fragment key={turnIndex}>
+                                    {/* User Message */}
+                                    {userMsg && (
+                                        <div className="flex gap-3 md:gap-6 animate-up flex-row-reverse">
+                                            <div className={`w-8 h-8 rounded-lg shrink-0 flex items-center justify-center ${user?.gender === 'Female' || user?.gender === 'Male' ? '' : 'bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 shadow-sm'}`}>
+                                                {user?.gender === 'Female' ? (
+                                                    <img src={womanImg} alt="User Avatar" className="w-full h-full object-cover rounded-lg" />
+                                                ) : user?.gender === 'Male' ? (
+                                                    <img src={manImg} alt="User Avatar" className="w-full h-full object-cover rounded-lg" />
+                                                ) : (
+                                                    <span className="text-[9px] font-black text-gray-400">YOU</span>
+                                                )}
+                                            </div>
+                                            <div className="space-y-1 pt-1 max-w-[calc(100%-3rem)] md:max-w-[85%] min-w-0">
+                                                <div className="p-4 rounded-2xl bg-zuari-navy text-white shadow-md text-right">
+                                                    <div
+                                                        className="prose prose-sm max-w-none text-white prose-p:text-white prose-headings:text-white prose-strong:text-white prose-ul:text-white prose-li:text-white dark:prose-invert"
+                                                        dangerouslySetInnerHTML={{ __html: userMsg.content }}
+                                                    />
+                                                </div>
                                             </div>
                                         </div>
+                                    )}
 
-                                        {/* Feedback & Ticket — only for AI messages */}
-                                        {isAI && (
-                                            <div className="flex items-center gap-2 pt-1 pl-1 flex-wrap">
-                                                {/* Thumbs Feedback */}
-                                                {submittedSet.has(msgId) ? (
-                                                    <div title="Thanks for your feedback!" className={`flex items-center justify-center p-1.5 rounded-lg border text-xs ${currentThumb === 'down' ? 'bg-red-50 border-red-200 text-red-700 dark:bg-red-900/20 dark:border-red-700 dark:text-red-400' : 'bg-green-50 border-green-200 text-green-700 dark:bg-green-900/20 dark:border-green-700 dark:text-green-400'}`}>
-                                                        {currentThumb === 'down' ? (
-                                                            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018c.163 0 .326.02.485.06L17 4m-7 10v5a2 2 0 002 2h.095c.5 0 .905-.405.905-.904 0-.715.211-1.413.608-2.008L17 11V4m-7 10h2m-2-10h2a2 2 0 012 2v6a2 2 0 01-2 2h-2.5" />
-                                                            </svg>
-                                                        ) : (
-                                                            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.904 0 .715-.211 1.413-.608 2.008L7 13v7m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
-                                                            </svg>
+                                    {/* AI Message(s) with pagination */}
+                                    {activeAiMsg && (
+                                        <div key={activeAiMsg._id || activeAiMsg.id} className="flex gap-3 md:gap-6 animate-up">
+                                            <div className="w-8 h-8 rounded-lg bg-zuari-navy shadow-lg shrink-0 flex items-center justify-center">
+                                                <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                                            </div>
+
+                                            <div className="space-y-1 pt-1 max-w-[calc(100%-3rem)] md:max-w-[85%] min-w-0">
+                                                <div className="p-4 rounded-2xl overflow-x-auto custom-scrollbar glass text-[var(--text-main)] border border-gray-100 dark:border-slate-800 font-medium">
+                                                    <div
+                                                        className="prose prose-sm max-w-none prose-p:text-[var(--text-main)] prose-headings:text-[var(--text-main)] prose-strong:text-[var(--text-main)] prose-ul:text-[var(--text-main)] prose-li:text-[var(--text-main)] prose-li:marker:text-[var(--text-muted)] prose-p:my-1 prose-headings:my-2 prose-ul:my-2 prose-li:my-0.5 dark:prose-invert"
+                                                        dangerouslySetInnerHTML={{ __html: activeAiMsg.content }}
+                                                    />
+
+                                                    {/* Pagination Controls */}
+                                                    {aiVersions.length > 1 && (
+                                                        <div className="flex items-center gap-3 mt-4 pt-3 border-t border-gray-100/50 dark:border-slate-700/50">
+                                                            <div className="flex items-center gap-1">
+                                                                <button
+                                                                    disabled={currentIndex === 0}
+                                                                    onClick={() => setVersionIndices(prev => ({ ...prev, [turnIndex]: currentIndex - 1 }))}
+                                                                    className="p-1 rounded hover:bg-black/5 dark:hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                                                >
+                                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" /></svg>
+                                                                </button>
+                                                                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter tabular-nums">
+                                                                    {currentIndex + 1} / {aiVersions.length}
+                                                                </span>
+                                                                <button
+                                                                    disabled={currentIndex === aiVersions.length - 1}
+                                                                    onClick={() => setVersionIndices(prev => ({ ...prev, [turnIndex]: currentIndex + 1 }))}
+                                                                    className="p-1 rounded hover:bg-black/5 dark:hover:bg-white/5 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                                                >
+                                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" /></svg>
+                                                                </button>
+                                                            </div>
+                                                            <span className="text-[10px] text-gray-400 font-medium">Response versions</span>
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                {/* Feedback & Ticket */}
+                                                <div className="flex items-center gap-2 pt-1 pl-1 flex-wrap">
+                                                    {/* Thumbs Feedback */}
+                                                    <div className="flex items-center gap-1.5 p-1 rounded-xl bg-gray-50/50 dark:bg-slate-900/40 border border-gray-100 dark:border-slate-800">
+                                                        {feedbackMap[activeAiMsg._id || activeAiMsg.id] !== 'down' && (
+                                                            <button
+                                                                title={feedbackMap[activeAiMsg._id || activeAiMsg.id] === 'up' ? "Remove helpful rating" : "Mark as helpful"}
+                                                                onClick={() => handleThumb(activeAiMsg, userMsg, 'up')}
+                                                                className={`flex items-center justify-center p-2 rounded-lg text-xs transition-all duration-300 ${feedbackMap[activeAiMsg._id || activeAiMsg.id] === 'up'
+                                                                        ? 'bg-zuari-navy text-white shadow-sm shadow-blue-200 dark:shadow-none scale-105'
+                                                                        : 'bg-white dark:bg-slate-800 border border-transparent text-gray-400 hover:text-zuari-navy hover:border-blue-100 dark:hover:border-blue-900/30'
+                                                                    }`}
+                                                            >
+                                                                <svg className="w-4 h-4" fill={feedbackMap[activeAiMsg._id || activeAiMsg.id] === 'up' ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.904 0 .715-.211 1.413-.608 2.008L7 13v7m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
+                                                                </svg>
+                                                            </button>
+                                                        )}
+
+                                                        {feedbackMap[activeAiMsg._id || activeAiMsg.id] !== 'up' && (
+                                                            <button
+                                                                title={feedbackMap[activeAiMsg._id || activeAiMsg.id] === 'down' ? "Remove unhelpful rating" : "Mark as unhelpful"}
+                                                                onClick={() => handleThumb(activeAiMsg, userMsg, 'down')}
+                                                                className={`flex items-center justify-center p-2 rounded-lg text-xs transition-all duration-300 ${feedbackMap[activeAiMsg._id || activeAiMsg.id] === 'down'
+                                                                        ? 'bg-zuari-navy text-white shadow-sm shadow-blue-200 dark:shadow-none scale-105'
+                                                                        : 'bg-white dark:bg-slate-800 border border-transparent text-gray-400 hover:text-zuari-navy hover:border-blue-100 dark:hover:border-blue-900/30'
+                                                                    }`}
+                                                            >
+                                                                <svg className="w-4 h-4" fill={feedbackMap[activeAiMsg._id || activeAiMsg.id] === 'down' ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018c.163 0 .326.02.485.06L17 4m-7 10v5a2 2 0 002 2h.095c.5 0 .905-.405.905-.904 0-.715.211-1.413.608-2.008L17 11V4m-7 10h2m-2-10h2a2 2 0 012 2v6a2 2 0 01-2 2h-2.5" />
+                                                                </svg>
+                                                            </button>
                                                         )}
                                                     </div>
-                                                ) : (
-                                                    <>
-                                                        <button
-                                                            title="Mark as helpful"
-                                                            onClick={() => handleThumb(msg, msgIndex, 'up')}
-                                                            className="flex items-center justify-center p-1.5 rounded-lg border text-xs font-semibold transition-all bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-green-300 hover:text-green-600"
-                                                        >
-                                                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.904 0 .715-.211 1.413-.608 2.008L7 13v7m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
-                                                            </svg>
-                                                        </button>
-                                                        
-                                                        <button
-                                                            title="Mark as unhelpful"
-                                                            onClick={() => handleThumb(msg, msgIndex, 'down')}
-                                                            className="flex items-center justify-center p-1.5 rounded-lg border text-xs font-semibold transition-all bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-red-300 hover:text-red-600"
-                                                        >
-                                                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018c.163 0 .326.02.485.06L17 4m-7 10v5a2 2 0 002 2h.095c.5 0 .905-.405.905-.904 0-.715.211-1.413.608-2.008L17 11V4m-7 10h2m-2-10h2a2 2 0 012 2v6a2 2 0 01-2 2h-2.5" />
-                                                            </svg>
-                                                        </button>
-                                                    </>
-                                                )}
 
-                                                {/* Retry — icon only (hidden if any feedback submitted) */}
-                                                {!submittedSet.has(msgId) && (
-                                                    <button
-                                                        title="Retry this question"
-                                                        disabled={isLoading}
-                                                        onClick={() => {
-                                                            const userMsg = getRelatedUserMessage(msgIndex);
-                                                            if (userMsg) {
-                                                                const plainText = (userMsg.content || '').replace(/<[^>]*>/g, '').trim();
-                                                                if (plainText) onSendMessage(plainText);
-                                                            }
-                                                        }}
-                                                        className={`flex items-center justify-center p-1.5 rounded-lg border text-xs font-semibold transition-all
-                                                            ${isLoading
-                                                                ? 'bg-gray-100 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-300 dark:text-gray-600 cursor-not-allowed opacity-50'
-                                                                : 'bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-blue-300 hover:text-blue-600 dark:hover:border-blue-600 dark:hover:text-blue-400'
-                                                            }`}
-                                                    >
-                                                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                                        </svg>
-                                                    </button>
-                                                )}
-
-                                                {/* Raise a Ticket / Ticket Raised - Show if not submitted OR if submitted as 'down' */}
-                                                {(!submittedSet.has(msgId) || currentThumb === 'down') && (
-                                                    ticketRaisedMap[msgId] ? (
-                                                        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-semibold bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-900/20 dark:border-amber-700 dark:text-amber-400">
-                                                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                                                            </svg>
-                                                            <span>Ticket raised ({ticketRaisedMap[msgId]})</span>
-                                                        </div>
-                                                    ) : (
+                                                    {/* Retry Button — uses isRegenerate mode */}
+                                                    {(feedbackMap[activeAiMsg._id || activeAiMsg.id] !== 'up') && (
                                                         <button
-                                                            title="Raise a support ticket"
-                                                            onClick={() => handleTicketClick(msg, msgIndex)}
-                                                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-all bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-amber-300 hover:text-amber-600 dark:hover:border-amber-600 dark:hover:text-amber-400"
+                                                            title="Regenerate response"
+                                                            disabled={isLoading}
+                                                            onClick={() => {
+                                                                if (userMsg) {
+                                                                    const plainText = (userMsg.content || '').replace(/<[^>]*>/g, '').trim();
+                                                                    if (plainText) onSendMessage(plainText, true); // true = isRegenerate
+                                                                }
+                                                            }}
+                                                            className={`flex items-center justify-center p-1.5 rounded-lg border text-xs font-semibold transition-all ${isLoading ? 'bg-gray-100 dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-300 dark:text-gray-600 cursor-not-allowed opacity-50' : 'bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-zuari-navy hover:text-zuari-navy dark:hover:border-blue-600 dark:hover:text-blue-400'}`}
                                                         >
-                                                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" />
-                                                            </svg>
-                                                            Raise a Ticket
+                                                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                                                         </button>
-                                                    )
-                                                )}
+                                                    )}
+
+                                                    {/* Raise Ticket */}
+                                                    {(!submittedSet.has(activeAiMsg._id || activeAiMsg.id) || feedbackMap[activeAiMsg._id || activeAiMsg.id] === 'down') && (
+                                                        ticketRaisedMap[activeAiMsg._id || activeAiMsg.id] ? (
+                                                            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-semibold bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-900/20 dark:border-amber-700 dark:text-amber-400">
+                                                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
+                                                                <span>Ticket raised ({ticketRaisedMap[activeAiMsg._id || activeAiMsg.id]})</span>
+                                                            </div>
+                                                        ) : (
+                                                            <button title="Raise a support ticket" onClick={() => handleTicketClick(activeAiMsg, userMsg)} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-all bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-500 dark:text-gray-400 hover:border-zuari-navy hover:text-zuari-navy dark:hover:border-blue-600 dark:hover:text-blue-400"><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" /></svg>Raise a Ticket</button>
+                                                        )
+                                                    )}
+                                                </div>
                                             </div>
-                                        )}
-                                    </div>
-                                </div>
+                                        </div>
+                                    )}
+                                </React.Fragment>
                             );
                         })}
 
@@ -721,6 +806,47 @@ const ChatArea = ({
                     </p>
                 </div>
             </div>
+            <FeedbackModal
+                isOpen={isFeedbackModalOpen}
+                onClose={() => setIsFeedbackModalOpen(false)}
+                onSubmit={handleFeedbackSubmit}
+                metadata={pendingFeedback}
+            />
+
+            {/* Quality Check Modal */}
+            {(qaEvaluating || qaEvaluation || qaError) && (
+                <TicketQAModal
+                    evaluation={qaEvaluation}
+                    evaluating={qaEvaluating}
+                    error={qaError}
+                    onProceed={handleQaProceed}
+                    onGotIt={handleQaGotIt}
+                    onClose={() => {
+                        setQaEvaluation(null);
+                        setQaEvaluating(false);
+                        setQaError('');
+                        setTicketModal(null);
+                    }}
+                />
+            )}
+
+            {/* Raise Ticket Form Modal */}
+            {ticketModal && !qaEvaluating && !qaEvaluation && !qaError && (
+                <RaiseTicketModal
+                    question={ticketModal.question}
+                    answer={ticketModal.answer}
+                    onClose={() => setTicketModal(null)}
+                    onRaise={handleRaiseTicket}
+                />
+            )}
+
+            {/* Success Modal */}
+            {successTicket && (
+                <TicketSuccessModal
+                    ticket={successTicket}
+                    onClose={() => setSuccessTicket(null)}
+                />
+            )}
         </div>
     );
 };

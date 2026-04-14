@@ -1,3 +1,4 @@
+import User from '../models/User.js';
 import Ticket from '../models/Ticket.js';
 import TicketMessage from '../models/TicketMessage.js';
 
@@ -81,19 +82,38 @@ const getHrOpsStats = async (req, res, next) => {
 // GET /api/hrops/tickets  (tickets assigned to the logged-in HROps user)
 const getAssignedTickets = async (req, res, next) => {
     try {
-        const { status, category, startDate, endDate, page = 1, limit = 20 } = req.query;
+        const { status, category, startDate, endDate, page = 1, limit = 20, search } = req.query;
         const themeIds = req.user.assignedThemes || [];
         const filter = { theme: { $in: themeIds } };
+
         if (status) filter.status = status;
         if (category) filter.theme = category;
+
+        // Date range
         if (startDate || endDate) {
             filter.createdAt = {};
-            if (startDate) filter.createdAt.$gte = new Date(startDate);
-            if (endDate) {
-                const end = new Date(endDate);
-                end.setHours(23, 59, 59, 999);
-                filter.createdAt.$lte = end;
+            if (startDate) {
+                filter.createdAt.$gte = new Date(`${startDate}T00:00:00`);
             }
+            if (endDate) {
+                filter.createdAt.$lte = new Date(`${endDate}T23:59:59.999`);
+            }
+        }
+
+        // Search in employee name, subject or description
+        if (search) {
+            const matchingUsers = await User.find({ name: { $regex: search, $options: 'i' } }).select('_id').lean();
+            const userIds = matchingUsers.map(u => u._id);
+            
+            filter.$and = filter.$and || [];
+            filter.$and.push({
+                $or: [
+                    { userId: { $in: userIds } },
+                    { description: { $regex: search, $options: 'i' } },
+                    { subject: { $regex: search, $options: 'i' } },
+                    { ticketNumber: { $regex: search, $options: 'i' } }
+                ]
+            });
         }
 
         const tickets = await Ticket.find(filter)

@@ -741,18 +741,21 @@ const generateTicketFields = async (description, categories, user) => {
             config: {
                 systemInstruction: `You are an HR ticket assistant. An employee has written a description of their issue. Based on the description and available HR policy context, generate the following fields for the ticket:
 
-1. **subject** – A concise, clear summary of the issue (max 120 characters). Should be specific and actionable.
-2. **categoryId** – The ID of the most appropriate category from the AVAILABLE CATEGORIES list.
-3. **categoryName** – The name of the chosen category.
+1. **subject** – A concise, clear summary of the issue (max 120 characters).
+2. **description** – A professional, cohesive, and detailed synthesis of the employee's provided description, story, and intent. Ensure it flows naturally and is respectful.
+3. **categoryId** – The ID of the most appropriate category from the AVAILABLE CATEGORIES list.
+4. **categoryName** – The name of the chosen category.
 
 Rules:
 - The subject should capture the core issue in a short phrase.
+- The description should be a single, well-structured paragraph or list that summarizes the entire context professionally.
 - Pick the single best matching category. If none fit well, pick "Other / Unclassified".
 - Use ONLY category IDs from the provided list.
 
 Return ONLY valid JSON:
 {
   "subject": "...",
+  "description": "...",
   "categoryId": "...",
   "categoryName": "..."
 }`,
@@ -784,12 +787,13 @@ Return ONLY valid JSON:
         const parsed = JSON.parse(text.substring(first, last + 1));
         return {
             subject: parsed.subject || '',
+            description: parsed.description || '',
             categoryId: parsed.categoryId || '',
             categoryName: parsed.categoryName || ''
         };
     } catch (err) {
         console.error('generateTicketFields error:', err);
-        return { subject: '', categoryId: '', categoryName: '' };
+        return { subject: '', description: '', categoryId: '', categoryName: '' };
     }
 };
 

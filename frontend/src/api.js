@@ -90,12 +90,12 @@ export const createConversation = async (title) => {
     }
 };
 
-export const sendMessage = async (conversationId, content, selectedPolicy = null) => {
+export const sendMessage = async (conversationId, content, selectedPolicy = null, isRegenerate = false) => {
     try {
         const response = await fetch(`${API_URL}/api/chat/message`, {
             method: 'POST',
             headers: getAuthHeaders(),
-            body: JSON.stringify({ conversationId, content, selectedPolicy }),
+            body: JSON.stringify({ conversationId, content, selectedPolicy, isRegenerate }),
         });
         const data = await response.json();
         if (!response.ok) {
@@ -1071,6 +1071,16 @@ export const getAdminTickets = async (filters = {}) => {
     return data;
 };
 
+export const exportAdminTickets = async (filters = {}) => {
+    const queryParams = new URLSearchParams(filters).toString();
+    const res = await fetch(`${API_URL}/api/admin/tickets/export?${queryParams}`, { headers: getAuthHeaders() });
+    if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.message || 'Failed to export tickets');
+    }
+    return await res.blob();
+};
+
 export const getAdminHrOpsUsers = async () => {
     const res = await fetch(`${API_URL}/api/admin/hrops`, { headers: getAuthHeaders() });
     const data = await res.json();
@@ -1083,5 +1093,12 @@ export const getAdminThemes = async () => {
     const res = await fetch(`${API_URL}/api/admin/config/question-themes`, { headers: getAuthHeaders() });
     const data = await res.json();
     if (!res.ok) throw new Error(data.message || 'Failed to fetch themes');
+    return data.data || [];
+};
+
+export const getConversationsWithFeedback = async (page = 1) => {
+    const res = await fetch(`${API_URL}/api/admin/feedbacks/conversations?page=${page}`, { headers: getAuthHeaders() });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to fetch conversations feedback');
     return data.data || [];
 };

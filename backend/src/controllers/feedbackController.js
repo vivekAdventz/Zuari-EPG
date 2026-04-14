@@ -1,6 +1,8 @@
 import QueryFeedback from '../models/QueryFeedback.js';
 import UserFeedback from '../models/UserFeedback.js';
 import User from '../models/User.js';
+import Conversation from '../models/Conversation.js';
+import Message from '../models/Message.js';
 import Ticket from '../models/Ticket.js';
 import TicketMessage from '../models/TicketMessage.js';
 import QuestionTheme from '../models/QuestionTheme.js';
@@ -11,11 +13,50 @@ import aiService from '../services/aiService.js';
 // @access  Private
 const submitFeedback = async (req, res, next) => {
     try {
-        const { queryId, responseId, userQuestion, aiResponse, thumbs, description } = req.body;
+        let { queryId, responseId, userQuestion, aiResponse, thumbs, description, conversationId, selectedChips } = req.body;
+
+        // Fallback: If conversationId is missing, look it up from the message record
+        if (!conversationId && (queryId || responseId)) {
+            const linkedMsg = await Message.findById(queryId || responseId);
+            if (linkedMsg) {
+                conversationId = linkedMsg.conversationId;
+            }
+        }
 
         if (!queryId || !responseId || !userQuestion || !aiResponse || !thumbs) {
             res.status(400);
             throw new Error('queryId, responseId, userQuestion, aiResponse and thumbs are required');
+        }
+
+        // Check for existing feedback by this user for this response
+        const existingFeedback = await QueryFeedback.findOne({
+            responseId,
+            userMail: req.user.email
+        });
+
+        if (existingFeedback) {
+            // If the same thumb is clicked, treat as toggle off -> DELETE
+            if (existingFeedback.thumbs === thumbs) {
+                await QueryFeedback.findByIdAndDelete(existingFeedback._id);
+                return res.status(200).json({
+                    statusCode: 200,
+                    success: true,
+                    message: 'Feedback removed',
+                    data: null
+                });
+            } else {
+                // If different thumb, UPDATE
+                existingFeedback.thumbs = thumbs;
+                existingFeedback.description = description !== undefined ? description : existingFeedback.description;
+                existingFeedback.conversationId = conversationId || existingFeedback.conversationId;
+                existingFeedback.selectedChips = selectedChips !== undefined ? selectedChips : existingFeedback.selectedChips;
+                await existingFeedback.save();
+                return res.status(200).json({
+                    statusCode: 200,
+                    success: true,
+                    data: existingFeedback
+                });
+            }
         }
 
         // Populate entity, level, empCategory for readable names
@@ -35,6 +76,8 @@ const submitFeedback = async (req, res, next) => {
             userQuestion,
             aiResponse,
             thumbs,
+            conversationId,
+            selectedChips: selectedChips || [],
             description: description || ''
         });
 
@@ -155,6 +198,14 @@ const raiseTicket = async (req, res, next) => {
         if (!isChatTicket && !isIndependentTicket) {
             res.status(400);
             throw new Error('Either (userQuestion + aiResponse) for chat tickets or (subject) for independent tickets is required');
+        }
+
+        // 25-word minimum check
+        const descToCheck = description || (isChatTicket ? userQuestion : '');
+        const wordCount = descToCheck.trim().split(/\s+/).filter(w => w.length > 0).length;
+        if (wordCount < 25) {
+            res.status(400);
+            throw new Error(`Ticket description must be at least 25 words (current: ${wordCount})`);
         }
 
         // Classify: use userQuestion for chat tickets, or subject+description for independent
@@ -342,5 +393,66 @@ const sendEmployeeTicketMessage = async (req, res, next) => {
     }
 };
 
-export { submitFeedback, submitGeneralFeedback, getQueryFeedbacks, getUserFeedbacks, raiseTicket, getMyTickets, getEmployeeTicketMessages, sendEmployeeTicketMessage };
+// @desc    Get conversations with their feedback for admin analysis
+// @route   GET /api/admin/conversations-feedback
+// @access  Private/Admin
+const getConversationsWithFeedback = async (req, res, next) => {
+    try {
+        const { page = 1, limit = 20 } = req.query;
+
+        // Find recent QueryFeedback entries that have a valid conversationId
+        const feedbacks = await QueryFeedback.find({ 
+            conversationId: { $ne: null, $exists: true } 
+        })
+            .sort({ createdAt: -1 })
+            .skip((page - 1) * Number(limit))
+            .limit(Number(limit))
+            .lean();
+
+        // Get unique conversation IDs from these feedbacks (safely)
+        const conversationIds = [...new Set(feedbacks
+            .filter(f => f.conversationId)
+            .map(f => f.conversationId.toString())
+        )];
+
+        // Fetch conversations and their messages
+        const conversations = await Promise.all(conversationIds.map(async (id) => {
+            const [conv, messages, allFeedback] = await Promise.all([
+                Conversation.findById(id).lean(),
+                Message.find({ conversationId: id }).sort({ createdAt: 1 }).lean(),
+                QueryFeedback.find({ conversationId: id }).lean()
+            ]);
+
+            if (!conv) return null;
+
+            return {
+                ...conv,
+                messages,
+                feedbackRecords: allFeedback
+            };
+        }));
+
+        const filtered = conversations.filter(c => c !== null);
+
+        res.status(200).json({
+            statusCode: 200,
+            success: true,
+            data: filtered
+        });
+    } catch (error) {
+        next(error);
+    }
+};
+
+export { 
+    submitFeedback, 
+    submitGeneralFeedback, 
+    getQueryFeedbacks, 
+    getUserFeedbacks, 
+    raiseTicket, 
+    getMyTickets, 
+    getEmployeeTicketMessages, 
+    sendEmployeeTicketMessage,
+    getConversationsWithFeedback 
+};
 

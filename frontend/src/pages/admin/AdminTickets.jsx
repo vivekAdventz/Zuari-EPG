@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import toast from 'react-hot-toast';
-import { getAdminTicketStats, getAdminTickets, getAdminHrOpsUsers, getAdminThemes } from '../../api';
-import { FiRefreshCw, FiFilter } from 'react-icons/fi';
+import { getAdminTicketStats, getAdminTickets, getAdminHrOpsUsers, getAdminThemes, exportAdminTickets } from '../../api';
+import { FiRefreshCw, FiFilter, FiSearch, FiDownload, FiCalendar } from 'react-icons/fi';
 
 const STATUS_META = {
     open:     { label: 'Open',     cls: 'bg-blue-100 text-blue-700',       dot: 'bg-blue-500' },
@@ -70,6 +70,9 @@ const AdminTickets = () => {
     const [statusFilter, setStatusFilter] = useState('');
     const [categoryFilter, setCategoryFilter] = useState('');
     const [hropsFilter, setHropsFilter] = useState('');
+    const [search, setSearch] = useState('');
+    const [startDate, setStartDate] = useState('');
+    const [endDate, setEndDate] = useState('');
 
     // Dropdown options
     const [hropsUsers, setHropsUsers] = useState([]);
@@ -108,6 +111,9 @@ const AdminTickets = () => {
             if (statusFilter)   payload.status  = statusFilter;
             if (categoryFilter) payload.theme    = categoryFilter;
             if (hropsFilter)    payload.hropsId  = hropsFilter;
+            if (search)         payload.search   = search;
+            if (startDate)      payload.startDate = startDate;
+            if (endDate)        payload.endDate   = endDate;
 
             const [statsRes, ticketsRes] = await Promise.all([
                 getAdminTicketStats(),
@@ -122,12 +128,46 @@ const AdminTickets = () => {
         } finally {
             setLoading(false);
         }
-    }, [statusFilter, categoryFilter, hropsFilter, page]);
+    }, [statusFilter, categoryFilter, hropsFilter, search, startDate, endDate, page]);
+
+    const handleExport = async () => {
+        try {
+            toast.loading('Preparing CSV...', { id: 'export' });
+            const payload = {};
+            if (statusFilter)   payload.status  = statusFilter;
+            if (categoryFilter) payload.theme    = categoryFilter;
+            if (hropsFilter)    payload.hropsId  = hropsFilter;
+            if (search)         payload.search   = search;
+            if (startDate)      payload.startDate = startDate;
+            if (endDate)        payload.endDate   = endDate;
+
+            const blob = await exportAdminTickets(payload);
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `tickets_export_${new Date().toISOString().split('T')[0]}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(url);
+            toast.success('CSV Downloaded', { id: 'export' });
+        } catch (e) {
+            toast.error(e.message || 'Failed to export CSV', { id: 'export' });
+        }
+    };
 
     useEffect(() => { fetchData(); }, [fetchData]);
 
-    const resetFilters = () => { setStatusFilter(''); setCategoryFilter(''); setHropsFilter(''); setPage(1); };
-    const hasActiveFilters = statusFilter || categoryFilter || hropsFilter;
+    const resetFilters = () => { 
+        setStatusFilter(''); 
+        setCategoryFilter(''); 
+        setHropsFilter(''); 
+        setSearch('');
+        setStartDate('');
+        setEndDate('');
+        setPage(1); 
+    };
+    const hasActiveFilters = statusFilter || categoryFilter || hropsFilter || search || startDate || endDate;
 
     const timeAgo = (date) => {
         const diff = Date.now() - new Date(date);
@@ -182,12 +222,20 @@ const AdminTickets = () => {
                             : 'All employee tickets — global view'}
                     </p>
                 </div>
-                <button
-                    onClick={fetchData}
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-300 text-sm font-bold shadow-sm hover:shadow-md transition-all hover:scale-105 active:scale-95"
-                >
-                    <FiRefreshCw size={14} /> Refresh
-                </button>
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={handleExport}
+                        className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-zuari-navy text-white text-sm font-bold shadow-sm hover:shadow-md transition-all hover:scale-105 active:scale-95"
+                    >
+                        <FiDownload size={14} /> Download CSV
+                    </button>
+                    <button
+                        onClick={fetchData}
+                        className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-600 dark:text-gray-300 text-sm font-bold shadow-sm hover:shadow-md transition-all hover:scale-105 active:scale-95"
+                    >
+                        <FiRefreshCw size={14} /> Refresh
+                    </button>
+                </div>
             </div>
 
             {/* KPI Cards */}
@@ -204,49 +252,86 @@ const AdminTickets = () => {
             </div>
 
             {/* Filter Bar */}
-            <div className="flex gap-3 flex-wrap items-center p-4 bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm">
-                <div className="flex items-center gap-2 text-xs font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">
-                    <FiFilter size={12} /> Filters
+            <div className="flex flex-col gap-4 p-5 bg-white dark:bg-slate-800 rounded-2xl border border-gray-100 dark:border-slate-700 shadow-sm transition-all">
+                
+                {/* Search & Reset */}
+                <div className="flex items-center justify-between flex-wrap gap-4">
+                    <div className="flex items-center gap-3 flex-1 min-w-[300px]">
+                        <div className="relative flex-1 group">
+                            <FiSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-blue-500 transition-colors" size={16} />
+                            <input 
+                                type="text"
+                                placeholder="Search by Employee Name, Subject, Description..."
+                                value={search}
+                                onChange={e => { setSearch(e.target.value); setPage(1); }}
+                                className="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-slate-900 border border-transparent focus:border-blue-500 dark:border-slate-700 rounded-xl text-sm transition-all focus:ring-4 focus:ring-blue-500/10 placeholder:text-gray-400 font-medium"
+                            />
+                        </div>
+                        {hasActiveFilters && (
+                            <button
+                                onClick={resetFilters}
+                                className="px-4 py-2.5 rounded-xl text-xs font-bold text-rose-500 bg-rose-50 dark:bg-rose-900/10 border border-rose-100 dark:border-rose-900/30 hover:bg-rose-100 transition-all flex items-center gap-2"
+                            >
+                                <span>✕</span> Reset All
+                            </button>
+                        )}
+                    </div>
                 </div>
 
-                {/* Status tabs */}
-                <div className="flex gap-1.5">
-                    {[['', 'All'], ['open', 'Open'], ['hold', 'Hold'], ['resolved', 'Resolved']].map(([val, label]) => (
-                        <button
-                            key={val}
-                            onClick={() => { setStatusFilter(val); setPage(1); }}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${statusFilter === val ? 'bg-blue-600 text-white shadow' : 'bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-slate-600'}`}
-                        >{label}</button>
-                    ))}
+                <div className="h-px bg-gray-50 dark:bg-slate-700/50 w-full" />
+
+                {/* Sub Filters Row */}
+                <div className="flex gap-4 flex-wrap items-center">
+                    <div className="flex items-center gap-2 text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest whitespace-nowrap">
+                        <FiFilter size={12} /> Status
+                    </div>
+                    <div className="flex gap-1.5 p-1 bg-gray-50 dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-700">
+                        {[['', 'All'], ['open', 'Open'], ['hold', 'Hold'], ['resolved', 'Resolved']].map(([val, label]) => (
+                            <button
+                                key={val}
+                                onClick={() => { setStatusFilter(val); setPage(1); }}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${statusFilter === val ? 'bg-white dark:bg-slate-800 text-blue-600 shadow-sm border border-gray-100 dark:border-slate-600' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'}`}
+                            >{label}</button>
+                        ))}
+                    </div>
+
+                    <div className="h-4 w-px bg-gray-200 dark:bg-slate-700 mx-1" />
+
+                    <div className="flex items-center gap-2 text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest whitespace-nowrap">
+                        <FiCalendar size={12} /> Date Range
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <input 
+                            type="date"
+                            value={startDate}
+                            onChange={e => { setStartDate(e.target.value); setPage(1); }}
+                            className="px-3 py-1.5 rounded-lg text-xs font-bold border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        />
+                        <span className="text-gray-400 text-xs font-bold">to</span>
+                        <input 
+                            type="date"
+                            value={endDate}
+                            onChange={e => { setEndDate(e.target.value); setPage(1); }}
+                            className="px-3 py-1.5 rounded-lg text-xs font-bold border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        />
+                    </div>
+
+                    <div className="h-4 w-px bg-gray-200 dark:bg-slate-700 mx-1" />
+
+                    <SelectFilter
+                        value={categoryFilter}
+                        onChange={v => { setCategoryFilter(v); setPage(1); }}
+                        options={themeOptions}
+                        placeholder="All Categories"
+                    />
+
+                    <SelectFilter
+                        value={hropsFilter}
+                        onChange={v => { setHropsFilter(v); setPage(1); }}
+                        options={hropsOptions}
+                        placeholder="All HROps POC"
+                    />
                 </div>
-
-                <div className="h-5 w-px bg-gray-200 dark:bg-slate-600 mx-1" />
-
-                {/* Category dropdown */}
-                <SelectFilter
-                    value={categoryFilter}
-                    onChange={v => { setCategoryFilter(v); setPage(1); }}
-                    options={themeOptions}
-                    placeholder="All Categories"
-                />
-
-                {/* HROps POC dropdown */}
-                <SelectFilter
-                    value={hropsFilter}
-                    onChange={v => { setHropsFilter(v); setPage(1); }}
-                    options={hropsOptions}
-                    placeholder="All HROps POC"
-                />
-
-                {/* Reset */}
-                {hasActiveFilters && (
-                    <button
-                        onClick={resetFilters}
-                        className="px-3 py-1.5 rounded-lg text-xs font-bold text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 border border-rose-200 dark:border-rose-800 transition-all"
-                    >
-                        ✕ Clear Filters
-                    </button>
-                )}
             </div>
 
             {/* Table */}

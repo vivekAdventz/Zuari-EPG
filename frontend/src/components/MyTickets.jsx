@@ -1,4 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { 
+  ChevronRight, 
+  ChevronLeft, 
+  Send, 
+  CheckCircle2, 
+  Zap, 
+  Clock, 
+  UserCheck, 
+  FileText 
+} from 'lucide-react';
 import { FiMessageCircle } from 'react-icons/fi';
 import { getMyTickets, raiseTicket as raiseTicketApi, getEmployeeQuestionThemes, evaluateIndependentTicket, generateTicketFields } from '../api';
 import TicketChatModal from './TicketChatModal';
@@ -91,21 +101,21 @@ const MyTickets = ({ onBack }) => {
     const [selectedTicket, setSelectedTicket] = useState(null);
     const [chatTicket, setChatTicket] = useState(null);
 
-    // Raise form state
+    // Raise form state (Premium)
     const [categories, setCategories] = useState([]);
-    const [form, setForm] = useState({ subject: '', categoryId: '', description: '' });
+    const [intent, setIntent] = useState('');
+    const [regarding, setRegarding] = useState('');
+    const [story, setStory] = useState('');
+    const [raiseModalView, setRaiseModalView] = useState('form'); // 'form' | 'preview' | 'success'
+    const [isGeneratingAi, setIsGeneratingAi] = useState(false);
+    const [aiAnalysis, setAiAnalysis] = useState({ subject: '', description: '', categoryName: '', categoryId: '' });
+    
     const [raising, setRaising] = useState(false);
     const [raiseError, setRaiseError] = useState('');
-    const [raiseSuccess, setRaiseSuccess] = useState(null);
-
-    // AI field generation states
-    const [fieldsGenerated, setFieldsGenerated] = useState(false);
-    const [generatingFields, setGeneratingFields] = useState(false);
+    const [raiseSuccessTicket, setRaiseSuccessTicket] = useState(null);
 
     // QA evaluation states
-    const [qaModal, setQaModal] = useState(false);
     const [qaEvaluation, setQaEvaluation] = useState(null);
-    const [qaEvaluating, setQaEvaluating] = useState(false);
     const [qaError, setQaError] = useState('');
 
     const fetchTickets = async (silent = false) => {
@@ -147,69 +157,66 @@ const MyTickets = ({ onBack }) => {
         loadCategories();
     }, []);
 
-    const handleGenerateFields = async (e) => {
-        e.preventDefault();
-        if (!form.description.trim()) { setRaiseError('Description is required'); return; }
+    const handleRaisePreview = async () => {
         setRaiseError('');
-        setGeneratingFields(true);
-        try {
-            const fields = await generateTicketFields({ description: form.description });
-            setForm(f => ({
-                ...f,
-                subject: fields.subject || '',
-                categoryId: fields.categoryId || '',
-            }));
-            setFieldsGenerated(true);
-        } catch (err) {
-            setRaiseError(err.message || 'Failed to generate fields. Please fill them manually.');
-            setFieldsGenerated(true);
-        } finally {
-            setGeneratingFields(false);
+        
+        if (regarding.length < 40) {
+            setRaiseError(`Regarding must be at least 40 characters (current: ${regarding.length})`);
+            return;
         }
-    };
 
-    const handleRaiseSubmit = async (e) => {
-        e.preventDefault();
-        if (!form.categoryId) { setRaiseError('Category is required'); return; }
-        if (!form.subject.trim()) { setRaiseError('Subject is required'); return; }
-        if (!form.description.trim()) { setRaiseError('Description is required'); return; }
-        setRaiseError('');
+        if (story.length < 200) {
+            setRaiseError(`Story must be at least 200 characters (current: ${story.length})`);
+            return;
+        }
 
-        // Start QA evaluation
-        setQaModal(true);
-        setQaEvaluation(null);
-        setQaError('');
-        setQaEvaluating(true);
+        setIsGeneratingAi(true);
+        const fullDescription = `I want to: ${intent}\nRegarding: ${regarding}\nStory: ${story}`;
+
         try {
-            const result = await evaluateIndependentTicket({
-                subject: form.subject,
-                description: form.description,
+            // 1. Synthesize Subject and Category
+            const synthesis = await generateTicketFields({ description: fullDescription });
+            
+            // 2. Perform Policy Evaluation (QA Check)
+            const evaluation = await evaluateIndependentTicket({ 
+                subject: synthesis.subject, 
+                description: fullDescription 
             });
-            setQaEvaluation(result);
+
+            // Find category name for display
+            const cat = categories.find(c => c._id === synthesis.categoryId);
+            
+            setAiAnalysis({
+                subject: synthesis.subject,
+                description: synthesis.description, // Store AI professional description
+                categoryName: cat ? cat.name : "Other",
+                categoryId: synthesis.categoryId
+            });
+            setQaEvaluation(evaluation);
+            setRaiseModalView('preview');
         } catch (err) {
-            setQaError(err.message || 'Evaluation failed.');
+            setRaiseError(err.message || 'Failed to analyze ticket. Please try again.');
         } finally {
-            setQaEvaluating(false);
+            setIsGeneratingAi(false);
         }
     };
 
-    const proceedToRaise = async () => {
-        setQaModal(false);
-        setQaEvaluation(null);
-        setQaError('');
+    const handleRaiseSubmit = async () => {
         setRaising(true);
         setRaiseError('');
+        const fullDescription = `I want to: ${intent}\nRegarding: ${regarding}\nStory: ${story}`;
+
         try {
             const ticket = await raiseTicketApi({
-                subject: form.subject,
-                description: form.description,
-                categoryId: form.categoryId || undefined,
+                subject: aiAnalysis.subject,
+                categoryId: aiAnalysis.categoryId || undefined,
+                description: aiAnalysis.description // Use the edited/generated professional description
             });
-            setRaiseSuccess(ticket);
-            setForm({ subject: '', categoryId: '', description: '' });
-            fetchTickets();
+            setRaiseSuccessTicket(ticket);
+            setRaiseModalView('success');
+            fetchTickets(true);
         } catch (e) {
-            setRaiseError(e.message || 'Failed to raise ticket');
+            setRaiseError(e.message || 'Failed to raise ticket.');
         } finally {
             setRaising(false);
         }
@@ -217,12 +224,25 @@ const MyTickets = ({ onBack }) => {
 
     const closeRaiseModal = () => {
         setShowRaiseModal(false);
-        setRaiseSuccess(null);
+        setRaiseModalView('form');
+        setIntent('');
+        setRegarding('');
+        setStory('');
         setRaiseError('');
-        setForm({ subject: '', categoryId: '', description: '' });
-        setFieldsGenerated(false);
-        setGeneratingFields(false);
+        setQaEvaluation(null);
+        setRaiseSuccessTicket(null);
+        setAiAnalysis({ subject: '', description: '', categoryName: '', categoryId: '' });
     };
+
+    const handleBackToForm = () => {
+        setRaiseModalView('form');
+    };
+
+    const getWordCount = (text) => {
+        return text.trim().split(/\s+/).filter(word => word.length > 0).length;
+    };
+
+    const isFormValid = intent && regarding.trim().length >= 40 && story.trim().length >= 200;
 
     return (
         <div className="flex-1 flex flex-col h-full bg-transparent relative overflow-hidden">
@@ -231,235 +251,253 @@ const MyTickets = ({ onBack }) => {
 
             {/* Raise Ticket Modal */}
             {showRaiseModal && (
-                <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-                    <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-gray-100 dark:border-slate-700 w-full max-w-lg mx-4 animate-up max-h-[88vh] flex flex-col">
-                        {/* Modal Header */}
-                        <div className="flex items-center justify-between p-5 border-b border-gray-100 dark:border-slate-800 shrink-0">
-                            <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
-                                    <svg className="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" />
+                <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 overflow-y-auto">
+                    <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-[2rem] shadow-2xl border border-slate-100 dark:border-slate-800 overflow-hidden animate-up">
+                        
+                        {/* Header */}
+                        <div className="px-8 pt-8 pb-6 border-b border-slate-50 dark:border-slate-800 flex justify-between items-start">
+                            <div>
+                                <h1 className="text-2xl font-bold tracking-tight text-slate-800 dark:text-white">Raise a Ticket</h1>
+                                <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">AI-assisted HR support request</p>
+                            </div>
+                            <div className="flex gap-2">
+                                <div className="bg-orange-50 dark:bg-orange-900/20 p-2.5 rounded-2xl">
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M22 10V15C22 20 20 22 15 22H9C4 22 2 20 2 15V9C2 4 4 2 9 2H10" stroke="#F97316" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                                        <path d="M22 10H18C15 10 14 9 14 6V2L22 10Z" stroke="#F97316" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                                     </svg>
                                 </div>
-                                <div>
-                                    <h2 className="text-lg font-bold text-gray-900 dark:text-white">Raise a Ticket</h2>
-                                    <p className="text-xs text-gray-500 dark:text-gray-400">Submit a new support request to the HR team</p>
-                                </div>
+                                <button onClick={closeRaiseModal} className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300">
+                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                </button>
                             </div>
-                            <button onClick={closeRaiseModal} className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 dark:hover:bg-slate-700 rounded-xl transition-all shrink-0 ml-3">
-                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                            </button>
                         </div>
 
-                        {/* Modal Body */}
-                        <div className="flex-1 overflow-y-auto custom-scrollbar p-5">
-                            {raiseSuccess ? (
-                                <div className="text-center py-6">
-                                    <div className="w-16 h-16 rounded-full bg-green-100 dark:bg-green-900/30 mx-auto mb-4 flex items-center justify-center">
-                                        <svg className="w-8 h-8 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" />
-                                        </svg>
+                        {/* Step 1: Form Input */}
+                        {raiseModalView === 'form' && (
+                            <div className="p-8 space-y-6 max-h-[70vh] overflow-y-auto custom-scrollbar">
+                                <div>
+                                    <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-2">I want to...</label>
+                                    <div className="relative">
+                                        <select
+                                            value={intent}
+                                            onChange={(e) => setIntent(e.target.value)}
+                                            className="w-full bg-slate-50 dark:bg-slate-800 border-2 border-transparent focus:border-orange-500 focus:bg-white dark:focus:bg-slate-700 rounded-2xl px-4 py-3.5 outline-none transition-all appearance-none cursor-pointer text-slate-700 dark:text-slate-200 font-medium"
+                                        >
+                                            <option value="" disabled>Choose an action</option>
+                                            <option value="Ask a Question">Ask a Question</option>
+                                            <option value="Report an Error">Report an Error</option>
+                                            <option value="Request an Action">Request an Action</option>
+                                            <option value="Escalate an Issue">Escalate an Issue</option>
+                                        </select>
+                                        <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                                            <ChevronLeft size={16} className="-rotate-90" />
+                                        </div>
                                     </div>
-                                    <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Ticket Raised Successfully!</h2>
-                                    {raiseSuccess.ticketNumber && (
-                                        <div className="bg-gray-50 dark:bg-slate-800 rounded-xl px-4 py-3 mb-4 inline-block">
-                                            <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Ticket ID</span>
-                                            <p className="text-lg font-black text-zuari-navy dark:text-blue-400">{raiseSuccess.ticketNumber}</p>
+                                </div>
+
+                                <div>
+                                    <div className="flex justify-between items-center mb-2">
+                                        <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest">Regarding</label>
+                                        <span className={`text-[10px] font-medium ${regarding.length >= 40 ? 'text-green-500' : 'text-slate-400'}`}>
+                                            {regarding.length}/40 min
+                                        </span>
+                                    </div>
+                                    <input
+                                        type="text"
+                                        maxLength={60}
+                                        placeholder="e.g. October Payslip, Laptop, Annual Leave"
+                                        value={regarding}
+                                        onChange={(e) => setRegarding(e.target.value)}
+                                        className="w-full bg-slate-50 dark:bg-slate-800 border-2 border-transparent focus:border-orange-500 focus:bg-white dark:focus:bg-slate-700 rounded-2xl px-4 py-3.5 outline-none transition-all text-slate-700 dark:text-slate-200"
+                                    />
+                                </div>
+
+                                <div>
+                                    <div className="flex justify-between items-center mb-2">
+                                        <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest">Tell us the story...</label>
+                                        <span className={`text-[10px] font-medium ${story.length >= 200 ? 'text-green-500' : 'text-slate-400'}`}>
+                                            {story.length}/200 min
+                                        </span>
+                                    </div>
+                                    <textarea
+                                        maxLength={600}
+                                        placeholder="Describe your issue or request in detail (min 200 chars)"
+                                        rows="4"
+                                        value={story}
+                                        onChange={(e) => setStory(e.target.value)}
+                                        className="w-full bg-slate-50 dark:bg-slate-800 border-2 border-transparent focus:border-orange-500 focus:bg-white dark:focus:bg-slate-700 rounded-2xl px-4 py-3.5 outline-none transition-all resize-none text-slate-700 dark:text-slate-200 leading-relaxed"
+                                    ></textarea>
+                                </div>
+
+                                {raiseError && <p className="text-xs text-red-500 ml-1">{raiseError}</p>}
+
+                                <button
+                                    onClick={handleRaisePreview}
+                                    disabled={!isFormValid || isGeneratingAi}
+                                    className={`w-full py-4 rounded-2xl font-bold text-white shadow-xl shadow-orange-200 dark:shadow-none transition-all flex items-center justify-center space-x-2 ${
+                                        isFormValid ? 'bg-orange-500 hover:bg-orange-600 active:scale-[0.98]' : 'bg-slate-200 dark:bg-slate-700 cursor-not-allowed shadow-none text-slate-400'
+                                    }`}
+                                >
+                                    {isGeneratingAi ? (
+                                        <div className="w-6 h-6 border-3 border-white/30 border-t-white rounded-full animate-spin"></div>
+                                    ) : (
+                                        <>
+                                            <span>Continue to Analysis</span>
+                                            <ChevronRight size={18} />
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                        )}
+                        {/* Step 2: AI Preview & Quality Check */}
+                        {raiseModalView === 'preview' && (
+                            <div className="p-8 space-y-6 max-h-[70vh] overflow-y-auto custom-scrollbar">
+                                <div className="space-y-6">
+                                    <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800/30 rounded-2xl p-4 flex items-start space-x-3">
+                                        <Zap size={18} className="text-indigo-500 mt-0.5 fill-indigo-500/20" />
+                                        <div>
+                                            <p className="text-sm font-semibold text-indigo-900 dark:text-indigo-300">AI Synthesis Complete</p>
+                                            <p className="text-xs text-indigo-700/70 dark:text-indigo-400">Review and refine the generated ticket details below.</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-4">
+                                        {/* Editable Subject */}
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Subject</label>
+                                            <input
+                                                type="text"
+                                                value={aiAnalysis.subject}
+                                                onChange={(e) => setAiAnalysis({ ...aiAnalysis, subject: e.target.value })}
+                                                className="w-full bg-white dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 focus:border-indigo-500 rounded-2xl px-4 py-3 outline-none transition-all text-slate-800 dark:text-white font-bold"
+                                            />
+                                        </div>
+
+                                        {/* Editable Category */}
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 ml-1">Routing Category</label>
+                                            <div className="relative">
+                                                <select
+                                                    value={aiAnalysis.categoryId}
+                                                    onChange={(e) => {
+                                                        const cat = categories.find(c => c._id === e.target.value);
+                                                        setAiAnalysis({ ...aiAnalysis, categoryId: e.target.value, categoryName: cat ? cat.name : "Other" });
+                                                    }}
+                                                    className="w-full bg-white dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 focus:border-indigo-500 rounded-2xl px-4 py-3 outline-none transition-all text-slate-700 dark:text-slate-200 font-semibold appearance-none cursor-pointer"
+                                                >
+                                                    {categories.map(cat => (
+                                                        <option key={cat._id} value={cat._id}>{cat.name}</option>
+                                                    ))}
+                                                </select>
+                                                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                                                    <ChevronLeft size={16} className="-rotate-90" />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Editable Professional Description */}
+                                        <div>
+                                            <div className="flex justify-between items-center mb-1.5">
+                                                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Professional Description</label>
+                                                <span className="text-[9px] font-bold text-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 px-2 py-0.5 rounded-full uppercase tracking-tighter">AI Optimized</span>
+                                            </div>
+                                            <textarea
+                                                rows="5"
+                                                value={aiAnalysis.description}
+                                                onChange={(e) => setAiAnalysis({ ...aiAnalysis, description: e.target.value })}
+                                                className="w-full bg-white dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-700 focus:border-indigo-500 rounded-2xl px-4 py-3 outline-none transition-all text-slate-700 dark:text-slate-200 text-sm leading-relaxed resize-none custom-scrollbar"
+                                            ></textarea>
+                                        </div>
+                                    </div>
+
+                                    {/* Policy Check Results */}
+                                    {qaEvaluation && (
+                                        <div className={`p-5 rounded-2xl border ${qaEvaluation.necessary ? 'bg-amber-50/50 dark:bg-amber-900/10 border-amber-100 dark:border-amber-800/20' : 'bg-green-50/50 dark:bg-green-900/10 border-green-100 dark:border-green-800/20'}`}>
+                                            <div className="flex items-start space-x-3">
+                                                {qaEvaluation.necessary ? <Clock size={16} className="text-amber-500 mt-0.5" /> : <CheckCircle2 size={16} className="text-green-500 mt-0.5" />}
+                                                <div>
+                                                    <p className={`text-sm font-bold ${qaEvaluation.necessary ? 'text-amber-700 dark:text-amber-300' : 'text-green-700 dark:text-green-300'}`}>
+                                                        {qaEvaluation.necessary ? 'Quality Check Passed' : 'Potential Resolution Found'}
+                                                    </p>
+                                                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
+                                                        {qaEvaluation.necessary ? qaEvaluation.reason : "AI identified a possible answer in company policies. You can still proceed if you need human assistance."}
+                                                    </p>
+                                                </div>
+                                            </div>
                                         </div>
                                     )}
-                                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">An HROps representative will review your ticket and follow up.</p>
-                                    <div className="flex gap-3 justify-center">
-                                        <button onClick={closeRaiseModal} className="px-5 py-2.5 rounded-xl bg-zuari-navy text-white text-sm font-bold hover:bg-[#122856] transition-all">
-                                            Close
-                                        </button>
-                                        <button onClick={() => { setRaiseSuccess(null); setForm({ subject: '', categoryId: '', description: '' }); setFieldsGenerated(false); }} className="px-5 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 text-sm font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-all">
-                                            Raise Another
-                                        </button>
-                                    </div>
                                 </div>
-                            ) : !fieldsGenerated ? (
-                                <form onSubmit={handleGenerateFields} className="space-y-4">
-                                    {/* Description only - Step 1 */}
-                                    <div className="bg-blue-50/60 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-800/30 rounded-xl px-4 py-3">
-                                        <p className="text-xs font-semibold text-blue-600 dark:text-blue-400">Describe your issue and AI will auto-fill the other fields for you.</p>
-                                    </div>
 
-                                    <div>
-                                        <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5 block">Description <span className="text-red-400">*</span></label>
-                                        <textarea
-                                            value={form.description}
-                                            onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-                                            placeholder="Describe your issue or request in detail..."
-                                            rows={5}
-                                            className="w-full rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-800 dark:text-white text-sm p-3 outline-none focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400 resize-none transition-all"
-                                        />
-                                    </div>
+                                {raiseError && <p className="text-xs text-red-500 ml-1">{raiseError}</p>}
 
-                                    {raiseError && <p className="text-xs text-red-500">{raiseError}</p>}
-
+                                <div className="flex space-x-3">
                                     <button
-                                        type="submit"
-                                        disabled={generatingFields}
-                                        className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-bold transition-all disabled:opacity-70 shadow-md flex items-center justify-center gap-2"
+                                        onClick={handleBackToForm}
+                                        className="flex-1 py-4 rounded-2xl font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all flex items-center justify-center space-x-2"
                                     >
-                                        {generatingFields ? (
-                                            <>
-                                                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                                                Generating Fields...
-                                            </>
+                                        <ChevronLeft size={18} />
+                                        <span>Edit</span>
+                                    </button>
+                                    <button
+                                        onClick={handleRaiseSubmit}
+                                        disabled={raising}
+                                        className="flex-[2] py-4 rounded-2xl font-bold text-white bg-orange-500 hover:bg-orange-600 shadow-xl shadow-orange-200 dark:shadow-none transition-all flex items-center justify-center space-x-2 active:scale-[0.98]"
+                                    >
+                                        {raising ? (
+                                            <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                                         ) : (
                                             <>
-                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                                                Generate Fields with AI
+                                                <span>Confirm & Submit</span>
+                                                <Send size={18} />
                                             </>
                                         )}
                                     </button>
-                                </form>
-                            ) : (
-                                <form onSubmit={handleRaiseSubmit} className="space-y-4">
-                                    {/* Description (read-only summary) */}
-                                    <div>
-                                        <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5 block">Description</label>
-                                        <div className="bg-gray-50 dark:bg-slate-800 rounded-xl px-4 py-3 text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap max-h-24 overflow-y-auto custom-scrollbar">{form.description}</div>
-                                    </div>
-
-                                    {/* AI-generated: Subject (editable) */}
-                                    <div>
-                                        <div className="flex items-center gap-2 mb-1.5">
-                                            <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Subject <span className="text-red-400">*</span></label>
-                                            <span className="text-[10px] font-semibold text-amber-500 bg-amber-50 dark:bg-amber-900/20 px-1.5 py-0.5 rounded">AI Generated</span>
-                                        </div>
-                                        <input
-                                            type="text"
-                                            value={form.subject}
-                                            onChange={e => setForm(f => ({ ...f, subject: e.target.value }))}
-                                            placeholder="Brief summary of your issue"
-                                            className="w-full rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-800 dark:text-white text-sm p-3 outline-none focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400 transition-all"
-                                            maxLength={200}
-                                        />
-                                    </div>
-
-                                    {/* AI-generated: Category (editable) */}
-                                    <div>
-                                        <div className="flex items-center gap-2 mb-1.5">
-                                            <label className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Category <span className="text-red-400">*</span></label>
-                                            <span className="text-[10px] font-semibold text-amber-500 bg-amber-50 dark:bg-amber-900/20 px-1.5 py-0.5 rounded">AI Generated</span>
-                                        </div>
-                                        <select
-                                            value={form.categoryId}
-                                            onChange={e => setForm(f => ({ ...f, categoryId: e.target.value }))}
-                                            required
-                                            className={`w-full rounded-xl border ${!form.categoryId && raiseError === 'Category is required' ? 'border-red-400 ring-2 ring-red-400/30' : 'border-gray-200 dark:border-slate-700'} bg-white dark:bg-slate-800 text-gray-800 dark:text-white text-sm p-3 outline-none focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400 transition-all`}
-                                        >
-                                            <option value="">Select a category</option>
-                                            {categories.map(cat => (
-                                                <option key={cat._id} value={cat._id}>{cat.name}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-
-                                    {raiseError && <p className="text-xs text-red-500">{raiseError}</p>}
-
-                                    <div className="flex gap-3">
-                                        <button
-                                            type="button"
-                                            onClick={() => { setFieldsGenerated(false); setRaiseError(''); }}
-                                            className="flex-1 py-3 rounded-xl border border-gray-200 dark:border-slate-700 text-sm font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-all"
-                                        >
-                                            Back
-                                        </button>
-                                        <button
-                                            type="submit"
-                                            disabled={raising}
-                                            className="flex-1 py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-bold transition-all disabled:opacity-70 shadow-md"
-                                        >
-                                            {raising ? 'Submitting...' : 'Submit Ticket'}
-                                        </button>
-                                    </div>
-                                </form>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* QA Evaluation Modal */}
-            {qaModal && (
-                <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-                    <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-gray-100 dark:border-slate-700 w-full max-w-md mx-4 p-6 animate-up relative">
-                        <button onClick={() => { setQaModal(false); setQaEvaluation(null); setQaError(''); }} className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 dark:hover:bg-slate-700 rounded-xl transition-all">
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                        </button>
-
-                        <div className="flex items-center gap-3 mb-5">
-                            <div className="w-10 h-10 rounded-xl bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
-                                <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                                </svg>
-                            </div>
-                            <div>
-                                <h2 className="text-lg font-bold text-gray-900 dark:text-white">Quality Check</h2>
-                                <p className="text-sm text-gray-500 dark:text-gray-400">Checking if your query can be answered by our policies</p>
-                            </div>
-                        </div>
-
-                        {qaEvaluating ? (
-                            <div className="py-8 text-center">
-                                <div className="w-10 h-10 border-3 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-4"></div>
-                                <p className="text-sm font-semibold text-gray-600 dark:text-gray-300">Analyzing your request...</p>
-                                <p className="text-xs text-gray-400 mt-1">Checking against company policies</p>
-                            </div>
-                        ) : qaError ? (
-                            <div className="py-6">
-                                <p className="text-sm text-red-500 mb-4">{qaError}</p>
-                                <div className="flex gap-3">
-                                    <button onClick={() => { setQaModal(false); setQaError(''); }} className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 text-sm font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-all">Cancel</button>
-                                    <button onClick={proceedToRaise} className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold transition-all">Proceed Anyway</button>
                                 </div>
                             </div>
-                        ) : qaEvaluation ? (
-                            <div>
-                                <div className={`rounded-xl p-4 mb-4 border ${qaEvaluation.necessary ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800/30' : 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800/30'}`}>
-                                    <div className="flex items-start gap-3">
-                                        {qaEvaluation.necessary ? (
-                                            <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center shrink-0 mt-0.5">
-                                                <svg className="w-4 h-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
+                        )}
+
+                        {/* Step 3: Success View */}
+                        {raiseModalView === 'success' && raiseSuccessTicket && (
+                            <div className="p-8 animate-in zoom-in-95 duration-500 text-center">
+                                <div className="w-20 h-20 bg-green-50 dark:bg-green-900/20 rounded-[2rem] flex items-center justify-center mx-auto mb-6 border border-green-100 dark:border-green-800/30">
+                                    <CheckCircle2 size={40} className="text-green-500" />
+                                </div>
+                                <h2 className="text-2xl font-bold text-slate-800 dark:text-white mb-2">Ticket #{raiseSuccessTicket.ticketNumber}</h2>
+                                <p className="text-slate-500 dark:text-slate-400 text-sm mb-8">Successfully submitted to the {aiAnalysis.categoryName} Team.</p>
+
+                                <div className="bg-slate-50 dark:bg-slate-800/50 rounded-[2rem] p-6 text-left border border-slate-100 dark:border-slate-800">
+                                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">What happens next?</h3>
+                                    <div className="space-y-4">
+                                        <div className="flex items-start space-x-3">
+                                            <div className="bg-white dark:bg-slate-900 p-2 rounded-lg mt-0.5 border border-slate-100 dark:border-slate-800">
+                                                <UserCheck size={14} className="text-indigo-500" />
                                             </div>
-                                        ) : (
-                                            <div className="w-8 h-8 rounded-lg bg-green-100 dark:bg-green-900/40 flex items-center justify-center shrink-0 mt-0.5">
-                                                <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
+                                            <div>
+                                                <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">Smart Routing</p>
+                                                <p className="text-xs text-slate-500 leading-relaxed">The AI is assigning your request to a specialist in {aiAnalysis.categoryName}.</p>
                                             </div>
-                                        )}
-                                        <div>
-                                            <p className={`text-sm font-bold ${qaEvaluation.necessary ? 'text-amber-700 dark:text-amber-400' : 'text-green-700 dark:text-green-400'}`}>
-                                                {qaEvaluation.necessary ? 'Ticket may be needed' : 'This may already be covered by our policies'}
-                                            </p>
-                                            <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
-                                                {qaEvaluation.necessary 
-                                                    ? qaEvaluation.reason 
-                                                    : "That AI response is sufficient and we don't feel there is any query that needs to be raised. If you still feel the need to raise a ticket pls click on raise anyway below button then click on raise a ticket"}
-                                            </p>
+                                        </div>
+                                        <div className="flex items-start space-x-3">
+                                            <div className="bg-white dark:bg-slate-900 p-2 rounded-lg mt-0.5 border border-slate-100 dark:border-slate-800">
+                                                <FileText size={14} className="text-indigo-500" />
+                                            </div>
+                                            <div>
+                                                <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">Policy Pre-Fetching</p>
+                                                <p className="text-xs text-slate-500 leading-relaxed">Relevant company documents have been attached to help the agent respond faster.</p>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
 
-                                {!qaEvaluation.necessary && qaEvaluation.suggestion && (
-                                    <div className="bg-blue-50/60 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-800/30 rounded-xl px-4 py-3 mb-4">
-                                        <p className="text-xs font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider mb-1">Suggestion</p>
-                                        <p className="text-sm text-blue-700 dark:text-blue-300">{qaEvaluation.suggestion}</p>
-                                    </div>
-                                )}
-
-                                <div className="flex gap-3">
-                                    <button onClick={() => { setQaModal(false); setQaEvaluation(null); }} className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 text-sm font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 transition-all">
-                                        {qaEvaluation.necessary ? 'Cancel' : 'Got it, no ticket needed'}
-                                    </button>
-                                    <button onClick={proceedToRaise} className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold transition-all">
-                                        {qaEvaluation.necessary ? 'Proceed to Raise Ticket' : 'Raise Anyway'}
-                                    </button>
-                                </div>
+                                <button
+                                    onClick={closeRaiseModal}
+                                    className="w-full mt-8 py-4 rounded-2xl font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all"
+                                >
+                                    Back to Dashboard
+                                </button>
                             </div>
-                        ) : null}
+                        )}
                     </div>
                 </div>
             )}
@@ -482,179 +520,179 @@ const MyTickets = ({ onBack }) => {
             {/* Content */}
             <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
                 <div className="w-full">
-                        <div className="space-y-6">
-                            {/* Filters Bar */}
-                            <div className="bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 rounded-2xl p-4 shadow-sm space-y-4">
-                                <div className="flex flex-wrap items-center gap-4">
-                                    <div className="flex-1 min-w-[200px]">
-                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block">Status</label>
-                                        <div className="flex gap-2 flex-wrap">
-                                            {['', 'open', 'hold', 'resolved'].map(s => (
-                                                <button
-                                                    key={s}
-                                                    onClick={() => setStatusFilter(s)}
-                                                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${statusFilter === s ? 'bg-zuari-navy text-white border-zuari-navy shadow-md' : 'bg-transparent text-gray-500 border-gray-100 dark:border-slate-700 hover:border-gray-200'}`}
-                                                >
-                                                    {s === '' ? 'All' : STATUS_LABELS[s]}
-                                                </button>
-                                            ))}
-                                        </div>
+                    <div className="space-y-6">
+                        {/* Filters Bar */}
+                        <div className="bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 rounded-2xl p-4 shadow-sm space-y-4">
+                            <div className="flex flex-wrap items-center gap-4">
+                                <div className="flex-1 min-w-[200px]">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block">Status</label>
+                                    <div className="flex gap-2 flex-wrap">
+                                        {['', 'open', 'hold', 'resolved'].map(s => (
+                                            <button
+                                                key={s}
+                                                onClick={() => setStatusFilter(s)}
+                                                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${statusFilter === s ? 'bg-zuari-navy text-white border-zuari-navy shadow-md' : 'bg-transparent text-gray-500 border-gray-100 dark:border-slate-700 hover:border-gray-200'}`}
+                                            >
+                                                {s === '' ? 'All' : STATUS_LABELS[s]}
+                                            </button>
+                                        ))}
                                     </div>
+                                </div>
 
-                                    <div className="w-full md:w-auto min-w-[180px]">
-                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block">Category</label>
-                                        <select
-                                            value={categoryFilter}
-                                            onChange={e => setCategoryFilter(e.target.value)}
-                                            className="w-full rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800 text-xs font-bold p-2.5 outline-none transition-all"
-                                        >
-                                            <option value="">All Categories</option>
-                                            {categories.map(cat => (
-                                                <option key={cat._id} value={cat._id}>{cat.name}</option>
-                                            ))}
-                                        </select>
-                                    </div>
+                                <div className="w-full md:w-auto min-w-[180px]">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block">Category</label>
+                                    <select
+                                        value={categoryFilter}
+                                        onChange={e => setCategoryFilter(e.target.value)}
+                                        className="w-full rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800 text-xs font-bold p-2.5 outline-none transition-all"
+                                    >
+                                        <option value="">All Categories</option>
+                                        {categories.map(cat => (
+                                            <option key={cat._id} value={cat._id}>{cat.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
 
-                                    <div className="w-full md:w-auto min-w-[320px]">
-                                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block">Date Range</label>
-                                        <div className="flex items-center gap-2">
-                                            <input
-                                                type="date"
-                                                value={startDate}
-                                                onChange={e => setStartDate(e.target.value)}
-                                                className="flex-1 rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800 text-xs font-bold p-2.5 outline-none"
-                                            />
-                                            <span className="text-gray-400">to</span>
-                                            <input
-                                                type="date"
-                                                value={endDate}
-                                                onChange={e => setEndDate(e.target.value)}
-                                                className="flex-1 rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800 text-xs font-bold p-2.5 outline-none"
-                                            />
-                                            {(startDate || endDate) && (
-                                                <button onClick={() => { setStartDate(''); setEndDate(''); }} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-all">
-                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                                                </button>
-                                            )}
-                                        </div>
+                                <div className="w-full md:w-auto min-w-[320px]">
+                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block">Date Range</label>
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="date"
+                                            value={startDate}
+                                            onChange={e => setStartDate(e.target.value)}
+                                            className="flex-1 rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800 text-xs font-bold p-2.5 outline-none"
+                                        />
+                                        <span className="text-gray-400">to</span>
+                                        <input
+                                            type="date"
+                                            value={endDate}
+                                            onChange={e => setEndDate(e.target.value)}
+                                            className="flex-1 rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800 text-xs font-bold p-2.5 outline-none"
+                                        />
+                                        {(startDate || endDate) && (
+                                            <button onClick={() => { setStartDate(''); setEndDate(''); }} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-all">
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             </div>
+                        </div>
 
-                            <div className="flex justify-end">
-                                <button
-                                    onClick={() => { setShowRaiseModal(true); setRaiseSuccess(null); setRaiseError(''); }}
-                                    className="flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold transition-all bg-amber-500 hover:bg-amber-600 text-white shadow-xl shadow-amber-500/20"
-                                >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" /></svg>
-                                    Raise a Ticket
-                                </button>
-                            </div>
+                        <div className="flex justify-end">
+                            <button
+                                onClick={() => { setShowRaiseModal(true); setRaiseSuccess(null); setRaiseError(''); }}
+                                className="flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold transition-all bg-amber-500 hover:bg-amber-600 text-white shadow-xl shadow-amber-500/20"
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" /></svg>
+                                Raise a Ticket
+                            </button>
+                        </div>
 
-                            {loading ? (
-                                <div className="p-12 text-center text-gray-400 bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm animate-pulse">Loading tickets...</div>
-                            ) : tickets.length === 0 ? (
-                                <div className="text-center py-20 bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm">
-                                    <div className="w-16 h-16 rounded-full bg-gray-50 dark:bg-slate-800 mx-auto mb-4 flex items-center justify-center">
-                                        <svg className="w-8 h-8 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" /></svg>
-                                    </div>
-                                    <p className="text-gray-500 font-bold">No tickets found</p>
-                                    <p className="text-xs text-gray-400 mt-1">Try adjusting your filters or raise a new ticket.</p>
+                        {loading ? (
+                            <div className="p-12 text-center text-gray-400 bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm animate-pulse">Loading tickets...</div>
+                        ) : tickets.length === 0 ? (
+                            <div className="text-center py-20 bg-white dark:bg-slate-900 rounded-2xl border border-gray-100 dark:border-slate-800 shadow-sm">
+                                <div className="w-16 h-16 rounded-full bg-gray-50 dark:bg-slate-800 mx-auto mb-4 flex items-center justify-center">
+                                    <svg className="w-8 h-8 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" /></svg>
                                 </div>
-                            ) : (
-                                <div className="bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
-                                    <div className="overflow-x-auto">
-                                        <table className="w-full text-left border-collapse">
-                                            <thead>
-                                                <tr className="bg-gray-50/50 dark:bg-slate-800/50 border-b border-gray-100 dark:border-slate-800">
-                                                    <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Ticket</th>
-                                                    <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Subject</th>
-                                                    <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Description</th>
-                                                    <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Category</th>
-                                                    <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Status</th>
-                                                    <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Raised On</th>
-                                                    <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Closure</th>
-                                                    <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Messages</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {tickets.map(ticket => (
-                                                    <tr key={ticket._id} className="border-b border-gray-50 dark:border-slate-800/50 hover:bg-gray-50/30 dark:hover:bg-slate-800/30 transition-colors">
-                                                        <td className="px-6 py-4 whitespace-nowrap">
-                                                            <span className="text-xs font-mono font-bold text-zuari-navy dark:text-blue-400">{ticket.ticketNumber}</span>
-                                                        </td>
-                                                        <td className="px-6 py-4">
-                                                            <p className="text-sm font-bold text-gray-800 dark:text-white truncate max-w-[150px]" title={ticket.subject || ticket.userQuestion}>
-                                                                {ticket.subject || ticket.userQuestion || 'No subject'}
-                                                            </p>
-                                                        </td>
-                                                        <td className="px-6 py-4">
-                                                            <p className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[180px]" title={ticket.description}>
-                                                                {ticket.description || 'No description'}
-                                                            </p>
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap">
-                                                            <span className="text-xs font-semibold text-gray-500 bg-gray-100 dark:bg-slate-800 px-2.5 py-1 rounded-lg">
-                                                                {ticket.themeName}
+                                <p className="text-gray-500 font-bold">No tickets found</p>
+                                <p className="text-xs text-gray-400 mt-1">Try adjusting your filters or raise a new ticket.</p>
+                            </div>
+                        ) : (
+                            <div className="bg-white dark:bg-slate-900 border border-gray-100 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left border-collapse">
+                                        <thead>
+                                            <tr className="bg-gray-50/50 dark:bg-slate-800/50 border-b border-gray-100 dark:border-slate-800">
+                                                <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Ticket</th>
+                                                <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Subject</th>
+                                                <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Description</th>
+                                                <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Category</th>
+                                                <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Status</th>
+                                                <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Raised On</th>
+                                                <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Closure</th>
+                                                <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center">Messages</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {tickets.map(ticket => (
+                                                <tr key={ticket._id} className="border-b border-gray-50 dark:border-slate-800/50 hover:bg-gray-50/30 dark:hover:bg-slate-800/30 transition-colors">
+                                                    <td className="px-6 py-4 whitespace-nowrap">
+                                                        <span className="text-xs font-mono font-bold text-zuari-navy dark:text-blue-400">{ticket.ticketNumber}</span>
+                                                    </td>
+                                                    <td className="px-6 py-4">
+                                                        <p className="text-sm font-bold text-gray-800 dark:text-white truncate max-w-[150px]" title={ticket.subject || ticket.userQuestion}>
+                                                            {ticket.subject || ticket.userQuestion || 'No subject'}
+                                                        </p>
+                                                    </td>
+                                                    <td className="px-6 py-4">
+                                                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[180px]" title={ticket.description}>
+                                                            {ticket.description || 'No description'}
+                                                        </p>
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap">
+                                                        <span className="text-xs font-semibold text-gray-500 bg-gray-100 dark:bg-slate-800 px-2.5 py-1 rounded-lg">
+                                                            {ticket.themeName}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap">
+                                                        <span className={`inline-block text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-wider ${STATUS_COLORS[ticket.status]}`}>
+                                                            {STATUS_LABELS[ticket.status] || ticket.status}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap">
+                                                        <span className="text-xs text-gray-400 font-medium">
+                                                            {new Date(ticket.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-6 py-4 whitespace-nowrap">
+                                                        {ticket.daysToClosure == null ? (
+                                                            <span className="text-xs text-gray-300 dark:text-slate-600">—</span>
+                                                        ) : ticket.status === 'resolved' ? (
+                                                            <span className="inline-block text-[10px] font-bold px-2.5 py-1 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
+                                                                Closed in {Math.max(1, Math.ceil((new Date(ticket.updatedAt) - new Date(ticket.createdAt)) / 86400000))}d
                                                             </span>
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap">
-                                                            <span className={`inline-block text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-wider ${STATUS_COLORS[ticket.status]}`}>
-                                                                {STATUS_LABELS[ticket.status] || ticket.status}
+                                                        ) : ticket.status === 'hold' ? (
+                                                            <span className="inline-block text-[10px] font-bold px-2.5 py-1 rounded-full bg-purple-50 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400">
+                                                                On Hold
                                                             </span>
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap">
-                                                            <span className="text-xs text-gray-400 font-medium">
-                                                                {new Date(ticket.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                                        ) : ticket.daysRemaining > 0 ? (
+                                                            <span className="inline-block text-[10px] font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
+                                                                {ticket.daysRemaining}d left
                                                             </span>
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap">
-                                                            {ticket.daysToClosure == null ? (
-                                                                <span className="text-xs text-gray-300 dark:text-slate-600">—</span>
-                                                            ) : ticket.status === 'resolved' ? (
-                                                                <span className="inline-block text-[10px] font-bold px-2.5 py-1 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
-                                                                    Closed in {Math.max(1, Math.ceil((new Date(ticket.updatedAt) - new Date(ticket.createdAt)) / 86400000))}d
-                                                                </span>
-                                                            ) : ticket.status === 'hold' ? (
-                                                                <span className="inline-block text-[10px] font-bold px-2.5 py-1 rounded-full bg-purple-50 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400">
-                                                                    On Hold
-                                                                </span>
-                                                            ) : ticket.daysRemaining > 0 ? (
-                                                                <span className="inline-block text-[10px] font-bold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
-                                                                    {ticket.daysRemaining}d left
-                                                                </span>
-                                                            ) : ticket.daysRemaining === 0 ? (
-                                                                <span className="inline-block text-[10px] font-bold px-2.5 py-1 rounded-full bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400">
-                                                                    Due today
-                                                                </span>
-                                                            ) : (
-                                                                <span className="inline-block text-[10px] font-bold px-2.5 py-1 rounded-full bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400">
-                                                                    Overdue {Math.abs(ticket.daysRemaining)}d
+                                                        ) : ticket.daysRemaining === 0 ? (
+                                                            <span className="inline-block text-[10px] font-bold px-2.5 py-1 rounded-full bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400">
+                                                                Due today
+                                                            </span>
+                                                        ) : (
+                                                            <span className="inline-block text-[10px] font-bold px-2.5 py-1 rounded-full bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400">
+                                                                Overdue {Math.abs(ticket.daysRemaining)}d
+                                                            </span>
+                                                        )}
+                                                    </td>
+                                                    <td className="px-6 py-4 text-center whitespace-nowrap">
+                                                        <button
+                                                            onClick={() => setChatTicket(ticket)}
+                                                            className="relative p-2 rounded-xl transition-all text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/40 cursor-pointer"
+                                                            title="Open Chat"
+                                                        >
+                                                            <FiMessageCircle size={20} />
+                                                            {ticket.unreadMessages > 0 && (
+                                                                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] flex items-center justify-center bg-red-500 text-white text-[10px] font-bold rounded-full px-1 border-2 border-white dark:border-slate-800">
+                                                                    {ticket.unreadMessages > 99 ? '99+' : ticket.unreadMessages}
                                                                 </span>
                                                             )}
-                                                        </td>
-                                                        <td className="px-6 py-4 text-center whitespace-nowrap">
-                                                            <button
-                                                                onClick={() => setChatTicket(ticket)}
-                                                                className="relative p-2 rounded-xl transition-all text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/40 cursor-pointer"
-                                                                title="Open Chat"
-                                                            >
-                                                                <FiMessageCircle size={20} />
-                                                                {ticket.unreadMessages > 0 && (
-                                                                    <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] flex items-center justify-center bg-red-500 text-white text-[10px] font-bold rounded-full px-1 border-2 border-white dark:border-slate-800">
-                                                                        {ticket.unreadMessages > 99 ? '99+' : ticket.unreadMessages}
-                                                                    </span>
-                                                                )}
-                                                            </button>
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
                                 </div>
-                            )}
-                        </div>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
         </div>

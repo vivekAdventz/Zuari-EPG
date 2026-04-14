@@ -91,7 +91,7 @@ const getMessages = async (req, res, next) => {
 // @access  Private
 const sendMessage = async (req, res, next) => {
     try {
-        const { conversationId, content, selectedPolicy } = req.body;
+        const { conversationId, content, selectedPolicy, isRegenerate } = req.body;
 
         if (!conversationId || !content) {
             res.status(400);
@@ -100,12 +100,10 @@ const sendMessage = async (req, res, next) => {
 
         const conversation = await chatService.getConversation(conversationId);
 
-
         if (!conversation) {
             res.status(404);
             throw new Error('Conversation not found');
         }
-
 
         // Check ownership
         if (conversation.userId.toString() !== req.user._id.toString()) {
@@ -113,27 +111,27 @@ const sendMessage = async (req, res, next) => {
             throw new Error('Not authorized to access this conversation');
         }
 
+        let userMessage = null;
 
+        // 1. Save User Message (unless regenerating)
+        if (!isRegenerate) {
+            userMessage = await chatService.saveMessage(conversation._id, req.user._id, 'user', content);
 
+            await createLog(req.user._id, req.user.name, req.user.roles?.join(', ') || 'employee', req.user.entity, `Prompted AI: ${content.substring(0, 50)}${content.length > 50 ? '...' : ''}`);
 
-        // 1. Save User Message
-        const userMessage = await chatService.saveMessage(conversation._id, req.user._id, 'user', content);
-
-        await createLog(req.user._id, req.user.name, req.user.roles?.join(', ') || 'employee', req.user.entity, `Prompted AI: ${content.substring(0, 50)}${content.length > 50 ? '...' : ''}`);
-
-        // 1.5 Fire-and-forget: classify this question into a theme (never blocks the response)
-        try {
-            classifyAndRecord({
-                messageId: userMessage._id,
-                userId: req.user._id,
-                conversationId: conversation._id,
-                question: content,
-                // Pass raw data, let classifyAndRecord handle lookup if needed
-                entityName: req.user.entity?.name || req.user.entity_code || '',
-                levelName: req.user.level?.name || ''
-            }).catch(err => console.error('Theme classification error (fire-and-forget):', err.message));
-        } catch (err) {
-            console.error('Theme classification initiation failed:', err.message);
+            // 1.5 Fire-and-forget: classify this question into a theme
+            try {
+                classifyAndRecord({
+                    messageId: userMessage._id,
+                    userId: req.user._id,
+                    conversationId: conversation._id,
+                    question: content,
+                    entityName: req.user.entity?.name || req.user.entity_code || '',
+                    levelName: req.user.level?.name || ''
+                }).catch(err => console.error('Theme classification error:', err.message));
+            } catch (err) {
+                console.error('Theme classification initiation failed:', err.message);
+            }
         }
 
         // 2. Fetch recent context
