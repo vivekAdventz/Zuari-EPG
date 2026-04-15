@@ -135,7 +135,17 @@ const sendMessage = async (req, res, next) => {
         }
 
         // 2. Fetch recent context
-        const recentMessages = await chatService.getRecentMessages(conversation._id);
+        let recentMessages = await chatService.getRecentMessages(conversation._id);
+
+        // Fix: When regenerating, remove the most recent AI response from history.
+        // This ensures the conversation history passed to Gemini ends with the user's
+        // question — otherwise Gemini sees it already answered and returns empty text.
+        if (isRegenerate) {
+            const lastAiIdx = recentMessages.findIndex(m => m.role === 'ai');
+            if (lastAiIdx !== -1) {
+                recentMessages = recentMessages.filter((_, i) => i !== lastAiIdx);
+            }
+        }
 
         // 2.5 Fetch available policies
         const query = {
@@ -174,11 +184,14 @@ const sendMessage = async (req, res, next) => {
         const populatedUser = await req.user.populate(['entity', 'level', 'empCategory']);
         const { content: botContent, policyName } = await aiService.generateAIResponse(recentMessages, populatedUser, selectedPolicy, availablePoliciesList);
 
-        // 5. Save Bot Message
-        const botMessage = await chatService.saveMessage(conversation._id, req.user._id, 'ai', botContent, policyName);
+        // Guard: never save empty content to MongoDB (model requires non-empty string)
+        const finalBotContent = botContent || '<p>Sorry, I had trouble generating a response. Please try again.</p>';
+
+        // 4. Save Bot Message
+        const botMessage = await chatService.saveMessage(conversation._id, req.user._id, 'ai', finalBotContent, policyName);
 
         // 5. Update Conversation lastMessage
-        await chatService.updateLastMessage(conversation._id, botContent);
+        await chatService.updateLastMessage(conversation._id, finalBotContent);
 
         res.status(200).json({
             statusCode: 200,
