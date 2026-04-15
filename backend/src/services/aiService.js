@@ -564,10 +564,11 @@ Your job is to evaluate whether the AI response already adequately addresses the
 Evaluate based on:
 1. Did the AI response directly answer the question?
 2. Is the response accurate, complete and actionable?
-// 3. Does the employee's query require human intervention other than hr policy related queries or hr related tasks (e.g personal records, disputes, escalations)?
-4. Is the query about something the AI cannot handle (e.g. updating records, processing requests)?
-5. Do the RELEVANT POLICY EXCERPTS (if provided) contain information that adequately answers the employee's question but the AI response missed or got wrong?
-6. if employee policy experts has content in which another personal approval is required set necessary to false
+3. Is the query about something the AI cannot handle (e.g. updating records, processing requests)?
+4. Do the RELEVANT POLICY EXCERPTS (if provided) contain information that adequately answers the employee's question but the AI response missed or got wrong?
+5. if employee policy experts has content in which another personal approval is required set necessary to false
+4. If RELEVANT POLICY EXCERPTS state that the employee should obtain approval from their Manager, Reporting Head, Department Head, or similar roles, then a ticket to HR is NOT necessary yet. Set "necessary": false and explain that they should seek approval as per policy.
+
 
 Return ONLY valid JSON:
 {
@@ -578,7 +579,7 @@ Return ONLY valid JSON:
   "preciseAnswer": "If necessary is false, provide a direct, concise, and helpful answer to the employee's question based strictly on the RELEVANT POLICY EXCERPTS. Leave empty if necessary is true."
 }
 
-IMPORTANT: If the query genuinely requires human HR intervention, ALWAYS mark necessary as true. When in doubt, lean toward allowing the ticket.`,
+IMPORTANT: Only mark necessary: true if a human HR representative is actually needed to perform an action or give specialized advice that isn't in the docs.`,
                 temperature: 0.2,
                 maxOutputTokens: 1024,
                 thinkingConfig: { thinkingBudget: 0 }
@@ -654,9 +655,9 @@ Your job is to evaluate whether the employee's question can already be answered 
 
 Evaluate based on:
 1. Do the RELEVANT POLICY EXCERPTS (if provided) contain clear, direct answers to the employee's question?
-2. Is this something that requires human intervention (e.g. approvals, personal records, disputes, escalations, processing requests)?
-3. Is the query specific enough that automated policy information would be sufficient?
-4. Could the employee find the answer by chatting with the AI assistant instead?
+2. Does the query require HUMAN HR intervention (e.g. updating master records, processing payments, resolving formal disputes)?
+3. If RELEVANT POLICY EXCERPTS state that the employee should obtain approval from their Manager, Reporting Head, Department Head, or similar roles, then a ticket to HR is NOT necessary yet. Set "necessary": false and explain that they should seek approval as per policy.
+4. If the policy provides a clear "next step" that doesn't involve HR directly (like using a specific portal or getting manager sign-off), set "necessary": false.
 
 Return ONLY valid JSON:
 {
@@ -667,7 +668,7 @@ Return ONLY valid JSON:
   "preciseAnswer": "If necessary is false, provide a direct, concise, and helpful answer to the employee's question based strictly on the RELEVANT POLICY EXCERPTS. Leave empty if necessary is true."
 }
 
-IMPORTANT: If the query genuinely requires human HR intervention, ALWAYS mark necessary as true. When in doubt, lean toward allowing the ticket.`,
+IMPORTANT: Only mark necessary: true if a human HR representative is actually needed to perform an action or give specialized advice that isn't in the docs.`,
                 temperature: 0.2,
                 maxOutputTokens: 1024,
                 thinkingConfig: { thinkingBudget: 0 }
