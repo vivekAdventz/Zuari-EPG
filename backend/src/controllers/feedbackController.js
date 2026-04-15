@@ -278,9 +278,20 @@ const raiseTicket = async (req, res, next) => {
 // GET /api/chat/my-tickets
 const getMyTickets = async (req, res, next) => {
     try {
-        const { status, page = 1, limit = 20 } = req.query;
+        const { status, theme, search, startDate, endDate, page = 1, limit = 20 } = req.query;
         const filter = { userId: req.user._id };
         if (status) filter.status = status;
+        if (theme) filter.theme = theme;
+        
+        if (search) {
+            filter.ticketNumber = { $regex: search, $options: 'i' };
+        }
+
+        if (startDate || endDate) {
+            filter.createdAt = {};
+            if (startDate) filter.createdAt.$gte = new Date(`${startDate}T00:00:00`);
+            if (endDate) filter.createdAt.$lte = new Date(`${endDate}T23:59:59.999`);
+        }
 
         const tickets = await Ticket.find(filter)
             .populate('theme', 'daysToClosure')
@@ -401,9 +412,10 @@ const getConversationsWithFeedback = async (req, res, next) => {
     try {
         const { page = 1, limit = 20 } = req.query;
 
-        // Find recent QueryFeedback entries that have a valid conversationId
+        // Find recent QueryFeedback entries that have a valid conversationId and thumbs down
         const feedbacks = await QueryFeedback.find({ 
-            conversationId: { $ne: null, $exists: true } 
+            conversationId: { $ne: null, $exists: true },
+            thumbs: 'down'
         })
             .sort({ createdAt: -1 })
             .skip((page - 1) * Number(limit))
