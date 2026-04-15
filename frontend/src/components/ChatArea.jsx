@@ -439,6 +439,10 @@ const ChatArea = ({
         setQaEvaluation(null);
         setQaEvaluating(true);
         setQaError('');
+
+        // Determine the policy name: from the AI message or the currently selected policy
+        const policyName = msg.policyName || selectedPolicyTitle || 'HR Policy';
+
         setTicketModal({
             msg,
             userMsg,
@@ -446,7 +450,8 @@ const ChatArea = ({
             queryId: userMsg?._id || userMsg?.id,
             responseId: msg._id || msg.id,
             question: userMsg?.content || '',
-            answer: msg.content
+            answer: msg.content,
+            policyName
         });
 
         try {
@@ -501,12 +506,16 @@ const ChatArea = ({
     const handleRaiseTicket = async (description) => {
         if (!ticketModal) return;
         try {
+            // Auto-generate subject: "Query in <Policy Name>"
+            const subject = `Query in ${ticketModal.policyName || selectedPolicyTitle || 'HR Policy'}`;
+
             const ticket = await raiseTicketApi({
                 queryId: ticketModal.queryId,
                 responseId: ticketModal.responseId,
                 userQuestion: ticketModal.question,
                 aiResponse: ticketModal.answer,
-                description
+                description,
+                subject
             });
             setTicketRaisedMap(prev => ({ ...prev, [ticketModal.msgId]: ticket.ticketNumber }));
             setSuccessTicket(ticket);

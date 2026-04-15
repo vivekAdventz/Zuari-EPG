@@ -252,6 +252,7 @@ const raiseTicket = async (req, res, next) => {
             description:       description || '',
             theme:             themeDoc?._id || null,
             themeName,
+            themeCode:         themeDoc?.functionCode || 'OTH',
             status:            'open',
         });
 
