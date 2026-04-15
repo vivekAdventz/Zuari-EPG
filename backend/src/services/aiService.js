@@ -564,10 +564,9 @@ Your job is to evaluate whether the AI response already adequately addresses the
 Evaluate based on:
 1. Did the AI response directly answer the question?
 2. Is the response accurate, complete and actionable?
-// 3. Does the employee's query require human intervention other than hr policy related queries or hr related tasks (e.g personal records, disputes, escalations)?
-4. Is the query about something the AI cannot handle (e.g. updating records, processing requests)?
-5. Do the RELEVANT POLICY EXCERPTS (if provided) contain information that adequately answers the employee's question but the AI response missed or got wrong?
-6. if employee policy experts has content in which another personal approval is required set necessary to false
+3. Is the query about something the AI cannot handle (e.g. updating records, processing requests)?
+4. Do the RELEVANT POLICY EXCERPTS (if provided) contain information that adequately answers the employee's question but the AI response missed or got wrong?
+5. if employee policy experts has content in which another personal approval is required set necessary to false
 
 Return ONLY valid JSON:
 {
