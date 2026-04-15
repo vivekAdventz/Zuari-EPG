@@ -56,6 +56,7 @@ const HrOpsOverview = () => {
     const [statusFilter, setStatusFilter] = useState('');
     const [categoryFilter, setCategoryFilter] = useState('');
     const [search, setSearch] = useState('');
+    const [ticketIdFilter, setTicketIdFilter] = useState('');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
     const [allThemes, setAllThemes] = useState([]);
@@ -72,6 +73,7 @@ const HrOpsOverview = () => {
             if (statusFilter) queryPayload.status = statusFilter;
             if (categoryFilter) queryPayload.category = categoryFilter;
             if (search) queryPayload.search = search;
+            if (ticketIdFilter) queryPayload.ticketNumber = ticketIdFilter;
             if (startDate) queryPayload.startDate = startDate;
             if (endDate) queryPayload.endDate = endDate;
 
@@ -93,7 +95,7 @@ const HrOpsOverview = () => {
     // Ensure we refetch when page or any filter changes
     useEffect(() => {
         fetchData();
-    }, [statusFilter, categoryFilter, search, startDate, endDate, page]);
+    }, [statusFilter, categoryFilter, search, ticketIdFilter, startDate, endDate, page]);
 
     useEffect(() => {
         const loadThemes = async () => {
@@ -112,12 +114,13 @@ const HrOpsOverview = () => {
         .filter(t => user?.assignedThemes?.includes(t._id))
         .map(t => ({ value: t._id, label: t.name }));
 
-    const hasActiveFilters = statusFilter || categoryFilter || search || startDate || endDate;
+    const hasActiveFilters = statusFilter || categoryFilter || search || ticketIdFilter || startDate || endDate;
 
     const resetFilters = () => {
         setStatusFilter('');
         setCategoryFilter('');
         setSearch('');
+        setTicketIdFilter('');
         setStartDate('');
         setEndDate('');
         setPage(1);
@@ -260,6 +263,16 @@ const HrOpsOverview = () => {
                 {/* Search Row */}
                 <div className="flex items-center justify-between flex-wrap gap-4">
                     <div className="flex items-center gap-3 flex-1 min-w-[300px]">
+                        <div className="relative w-48 group">
+                            <FiFilter className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-blue-500 transition-colors" size={14} />
+                            <input 
+                                type="text"
+                                placeholder="Ticket ID"
+                                value={ticketIdFilter}
+                                onChange={e => { setTicketIdFilter(e.target.value); setPage(1); }}
+                                className="w-full pl-10 pr-4 py-2.5 bg-gray-50 dark:bg-slate-900 border border-transparent focus:border-blue-500 dark:border-slate-700 rounded-xl text-sm transition-all focus:ring-4 focus:ring-blue-500/10 placeholder:text-gray-400 font-bold"
+                            />
+                        </div>
                         <div className="relative flex-1 group">
                             <FiSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-blue-500 transition-colors" size={16} />
                             <input 
