@@ -82,11 +82,12 @@ const getHrOpsStats = async (req, res, next) => {
 // GET /api/hrops/tickets  (tickets assigned to the logged-in HROps user)
 const getAssignedTickets = async (req, res, next) => {
     try {
-        const { status, category, startDate, endDate, page = 1, limit = 20, search } = req.query;
+        const { status, category, startDate, endDate, page = 1, limit = 20, search, ticketNumber } = req.query;
         const themeIds = req.user.assignedThemes || [];
         const filter = { theme: { $in: themeIds } };
 
         if (status) filter.status = status;
+        if (ticketNumber) filter.ticketNumber = { $regex: ticketNumber, $options: 'i' };
         if (category) filter.theme = category;
 
         // Date range

@@ -130,7 +130,7 @@ const AdminTickets = () => {
         } finally {
             setLoading(false);
         }
-    }, [statusFilter, categoryFilter, hropsFilter, search, startDate, endDate, page]);
+    }, [statusFilter, categoryFilter, hropsFilter, search, ticketIdFilter, startDate, endDate, page]);
 
     const handleExport = async () => {
         try {
