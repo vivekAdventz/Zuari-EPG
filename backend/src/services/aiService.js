@@ -573,12 +573,13 @@ Return ONLY valid JSON:
   "necessary": true/false,
   "confidence": "high"/"medium"/"low",
   "reason": "Brief 1-2 sentence explanation of your assessment",
-  "suggestion": "If not necessary, a brief suggestion for the employee on what to try instead"
+  "suggestion": "If not necessary, a brief suggestion for the employee on what to try instead",
+  "preciseAnswer": "If necessary is false, provide a direct, concise, and helpful answer to the employee's question based strictly on the RELEVANT POLICY EXCERPTS. Leave empty if necessary is true."
 }
 
 IMPORTANT: If the query genuinely requires human HR intervention, ALWAYS mark necessary as true. When in doubt, lean toward allowing the ticket.`,
                 temperature: 0.2,
-                maxOutputTokens: 512,
+                maxOutputTokens: 1024,
                 thinkingConfig: { thinkingBudget: 0 }
             }
         });
@@ -661,12 +662,13 @@ Return ONLY valid JSON:
   "necessary": true/false,
   "confidence": "high"/"medium"/"low",
   "reason": "Brief 1-2 sentence explanation of your assessment",
-  "suggestion": "If not necessary, a brief suggestion for the employee on what to try instead (e.g. which policy to check in AskHR chat)"
+  "suggestion": "If not necessary, a brief suggestion for the employee on what to try instead (e.g. which policy to check in AskHR chat)",
+  "preciseAnswer": "If necessary is false, provide a direct, concise, and helpful answer to the employee's question based strictly on the RELEVANT POLICY EXCERPTS. Leave empty if necessary is true."
 }
 
 IMPORTANT: If the query genuinely requires human HR intervention, ALWAYS mark necessary as true. When in doubt, lean toward allowing the ticket.`,
                 temperature: 0.2,
-                maxOutputTokens: 512,
+                maxOutputTokens: 1024,
                 thinkingConfig: { thinkingBudget: 0 }
             }
         });

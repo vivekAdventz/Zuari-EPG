@@ -301,8 +301,14 @@ const ChatArea = ({
         if (initialFeedbackIds?.length) {
             const newFeedback = {};
             const newSubmitted = new Set();
-            initialFeedbackIds.forEach(id => {
-                newFeedback[id] = 'up';
+            initialFeedbackIds.forEach(item => {
+                let id = item;
+                let thumbs = 'up';
+                if (typeof item === 'object' && item !== null) {
+                    id = item.id;
+                    thumbs = item.thumbs || 'up';
+                }
+                newFeedback[id] = thumbs;
                 newSubmitted.add(id);
             });
             setFeedbackMap(newFeedback);
@@ -367,8 +373,41 @@ const ChatArea = ({
         const msgId = msg._id || msg.id;
         const currentThumb = feedbackMap[msgId];
         
-        // If already selected the same type, do nothing (prevent unclicking/toggle-off)
-        if (currentThumb === thumbType) return;
+        // If clicking the same type, toggle it off! (Only allowed for thumbs down)
+        if (currentThumb === thumbType) {
+            if (thumbType === 'up') return;
+
+            // Optimistic update
+            setFeedbackMap(prev => {
+                const next = { ...prev };
+                delete next[msgId];
+                return next;
+            });
+
+            try {
+                // Hitting the backend with the same thumb toggles it off
+                await submitFeedback({
+                    queryId: userMsg?._id || userMsg?.id,
+                    responseId: msg._id || msg.id,
+                    userQuestion: userMsg?.content || '',
+                    aiResponse: msg.content,
+                    thumbs: thumbType,
+                    conversationId: userMsg?.conversationId || msg?.conversationId || messages?.[0]?.conversationId || null,
+                    description: ''
+                });
+                
+                setSubmittedSet(prev => {
+                    const next = new Set(prev);
+                    next.delete(msgId);
+                    return next;
+                });
+            } catch (e) {
+                console.error('Feedback removal error:', e);
+                // Revert state on error
+                setFeedbackMap(prev => ({ ...prev, [msgId]: currentThumb }));
+            }
+            return;
+        }
 
         // If clicking 'down', open the modal
         if (thumbType === 'down') {
@@ -663,7 +702,7 @@ const ChatArea = ({
                                                     <div className="flex items-center gap-1.5 p-1 rounded-xl bg-gray-50/50 dark:bg-slate-900/40 border border-gray-100 dark:border-slate-800">
                                                         {feedbackMap[activeAiMsg._id || activeAiMsg.id] !== 'down' && (
                                                             <button
-                                                                title={feedbackMap[activeAiMsg._id || activeAiMsg.id] === 'up' ? "Remove helpful rating" : "Mark as helpful"}
+                                                                title={feedbackMap[activeAiMsg._id || activeAiMsg.id] === 'up' ? "Marked as helpful" : "Mark as helpful"}
                                                                 onClick={() => handleThumb(activeAiMsg, userMsg, 'up')}
                                                                 className={`flex items-center justify-center p-2 rounded-lg text-xs transition-all duration-300 ${feedbackMap[activeAiMsg._id || activeAiMsg.id] === 'up'
                                                                         ? 'bg-zuari-navy text-white shadow-sm shadow-blue-200 dark:shadow-none scale-105'
