@@ -1210,10 +1210,11 @@ const getGlobalTicketStats = async (req, res, next) => {
 // @access  Private/Admin
 const getGlobalTickets = async (req, res, next) => {
     try {
-        const { status, theme, hropsId, page = 1, limit = 10, search, startDate, endDate } = req.query;
+        const { status, theme, hropsId, page = 1, limit = 10, search, ticketNumber, startDate, endDate } = req.query;
         const filter = {};
 
         if (status) filter.status = status;
+        if (ticketNumber) filter.ticketNumber = { $regex: ticketNumber, $options: 'i' };
 
         // Date range
         if (startDate || endDate) {
