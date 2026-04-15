@@ -22,10 +22,17 @@ import {
     evaluateIndependentTicket
 } from '../api';
 
-const RaiseTicketModal = ({ question, answer, onClose, onRaise }) => {
+const RaiseTicketModal = ({ question, answer, initialDesc = '', onClose, onRaise }) => {
     const [raising, setRaising] = useState(false);
     const [error, setError] = useState('');
-    const [desc, setDesc] = useState('');
+    const [desc, setDesc] = useState(initialDesc);
+
+    // Sync desc if initialDesc arrives late (e.g. background generation)
+    useEffect(() => {
+        if (initialDesc && !desc) {
+            setDesc(initialDesc);
+        }
+    }, [initialDesc]);
 
     const getWordCount = (text) => {
         return text.trim().split(/\s+/).filter(word => word.length > 0).length;
@@ -359,33 +366,22 @@ const ChatArea = ({
     const handleThumb = async (msg, userMsg, thumbType) => {
         const msgId = msg._id || msg.id;
         const currentThumb = feedbackMap[msgId];
-        const isToggleOff = currentThumb === thumbType;
+        
+        // If already selected the same type, do nothing (prevent unclicking/toggle-off)
+        if (currentThumb === thumbType) return;
 
-        // If clicking 'down' and it's not a toggle off, open the modal
-        if (thumbType === 'down' && !isToggleOff) {
+        // If clicking 'down', open the modal
+        if (thumbType === 'down') {
             setPendingFeedback({ msg, userMsg, thumbType });
             setIsFeedbackModalOpen(true);
             return;
         }
 
         // Optimistic update
-        if (isToggleOff) {
-            setFeedbackMap(prev => {
-                const next = { ...prev };
-                delete next[msgId];
-                return next;
-            });
-            setSubmittedSet(prev => {
-                const next = new Set(prev);
-                next.delete(msgId);
-                return next;
-            });
-        } else {
-            setFeedbackMap(prev => ({ ...prev, [msgId]: thumbType }));
-        }
+        setFeedbackMap(prev => ({ ...prev, [msgId]: thumbType }));
 
         try {
-            const res = await submitFeedback({
+            await submitFeedback({
                 queryId: userMsg?._id || userMsg?.id,
                 responseId: msg._id || msg.id,
                 userQuestion: userMsg?.content || '',
@@ -395,23 +391,19 @@ const ChatArea = ({
                 description: ''
             });
 
-            if (res && res.statusCode === 200 && res.message === 'Feedback removed') {
-                // Already done optimistically
-            } else if (!isToggleOff) {
-                setSubmittedSet(prev => new Set([...prev, msgId]));
-            }
+            setSubmittedSet(prev => new Set([...prev, msgId]));
         } catch (e) {
             console.error('Feedback error:', e);
-            if (isToggleOff) {
-                setFeedbackMap(prev => ({ ...prev, [msgId]: thumbType }));
-                setSubmittedSet(prev => new Set([...prev, msgId]));
-            } else {
-                setFeedbackMap(prev => {
-                    const next = { ...prev };
+            // Revert state on error
+            setFeedbackMap(prev => {
+                const next = { ...prev };
+                if (currentThumb) {
+                    next[msgId] = currentThumb;
+                } else {
                     delete next[msgId];
-                    return next;
-                });
-            }
+                }
+                return next;
+            });
         }
     };
 
@@ -463,6 +455,16 @@ const ChatArea = ({
                 aiResponse: msg.content
             });
             setQaEvaluation(evaluation);
+
+            // If ticket is necessary, pre-generate a professional description from the conversation
+            if (evaluation.necessary) {
+                const rawContext = `User Question: ${userMsg?.content || ''}\n\nAI Response: ${msg.content}`;
+                generateTicketFields({ description: rawContext })
+                    .then(fields => {
+                        setTicketModal(prev => prev ? { ...prev, generatedDesc: fields.description } : null);
+                    })
+                    .catch(err => console.error('Description generation failed:', err));
+            }
         } catch (e) {
             console.error('QA Evaluation error:', e);
             setQaError('Failed to perform Quality Check. You can still proceed to raise a ticket.');
@@ -835,6 +837,7 @@ const ChatArea = ({
                 <RaiseTicketModal
                     question={ticketModal.question}
                     answer={ticketModal.answer}
+                    initialDesc={ticketModal.generatedDesc || ''}
                     onClose={() => setTicketModal(null)}
                     onRaise={handleRaiseTicket}
                 />

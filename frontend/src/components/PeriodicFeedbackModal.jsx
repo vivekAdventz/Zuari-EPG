@@ -33,6 +33,17 @@ const PeriodicFeedbackModal = ({ isOpen, onClose, onSubmitFeedback }) => {
     return (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-900/30 backdrop-blur-sm animate-fadeIn">
             <div className="bg-white w-[520px] max-h-[90%] rounded-[32px] shadow-[0_40px_80px_-15px_rgba(0,0,0,0.3)] p-10 relative flex flex-col animate-modalScale">
+                {/* Close / Cancel button */}
+                <button
+                    onClick={onClose}
+                    title="Close"
+                    className="absolute top-5 right-5 w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all"
+                >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+
                 <div className="mb-6 shrink-0">
                     <div className="flex items-center gap-2 mb-2">
                         <span className="text-[9px] bg-blue-600 text-white px-2 py-1 rounded font-black uppercase tracking-widest">Quality Assurance</span>
@@ -106,7 +117,12 @@ const PeriodicFeedbackModal = ({ isOpen, onClose, onSubmitFeedback }) => {
                     >
                         {isSubmitting ? 'Syncing with Training Model...' : 'Submit Rating'}
                     </button>
-                    {/* Intentionally no cancel or close button to force submission */}
+                    <button
+                        onClick={onClose}
+                        className="w-full py-3 rounded-2xl text-sm font-semibold text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-all"
+                    >
+                        Maybe later
+                    </button>
                 </div>
             </div>
         </div>

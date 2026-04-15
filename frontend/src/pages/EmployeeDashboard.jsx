@@ -203,12 +203,12 @@ const EmployeeDashboard = () => {
             content,
             updatedAt: new Date().toISOString()
         };
-        
+
         // Only append user message if NOT regenerating
         if (!isRegenerate) {
             setMessages(prev => [...prev, tempUserMsg]);
         }
-        
+
         setIsLoading(true);
 
         try {
@@ -358,9 +358,9 @@ const EmployeeDashboard = () => {
                         availablePolicies={availablePolicies}
                         initialFeedbackIds={initialFeedbackIds}
                         initialTicketMap={initialTicketMap}
-                        onOpenTickets={() => { 
-                            setCurrentView('tickets'); 
-                            if (window.innerWidth < 768) setIsSidebarOpen(false); 
+                        onOpenTickets={() => {
+                            setCurrentView('tickets');
+                            if (window.innerWidth < 768) setIsSidebarOpen(false);
                         }}
                     />
                 )}

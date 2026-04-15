@@ -4,10 +4,10 @@ import { searchPolicy } from './search.js';
 import ApiUsage from '../models/ApiUsage.js';
 
 const MODEL_PRICING = {
+    'gemini-3.1-flash-lite': { prompt: 0.0375, completion: 0.15 },
+    'gemini-3.1-flash': { prompt: 0.075, completion: 0.30 },
     'gemini-2.5-flash-lite': { prompt: 0.0375, completion: 0.15 },
-    'gemini-1.5-flash': { prompt: 0.075, completion: 0.30 },
     'gemini-2.5-flash': { prompt: 0.075, completion: 0.30 },
-    'gemini-1.5-pro': { prompt: 1.25, completion: 5.00 },
     'gemini-2.5-pro': { prompt: 1.25, completion: 5.00 },
     'gemini-pro': { prompt: 0.50, completion: 1.50 }
 };
@@ -23,14 +23,14 @@ const getModelPricing = (modelName) => {
 const logApiUsage = async (response, operation, modelName = "gemini-2.5-flash", userId = null) => {
     try {
         if (!response || !response.usageMetadata) return;
-        
+
         let promptTokens = response.usageMetadata.promptTokenCount || 0;
         let completionTokens = response.usageMetadata.candidatesTokenCount || 0;
         let totalTokens = response.usageMetadata.totalTokenCount || 0;
-        
+
         const rates = getModelPricing(modelName);
         const cost = ((promptTokens / 1000000) * rates.prompt) + ((completionTokens / 1000000) * rates.completion);
-        
+
         await ApiUsage.create({
             model: modelName,
             promptTokens,
@@ -40,15 +40,14 @@ const logApiUsage = async (response, operation, modelName = "gemini-2.5-flash", 
             operation,
             userId
         });
-    } catch(err) {
+    } catch (err) {
         console.error("Failed to log API usage:", err);
     }
 };
 
 const FALLBACK_MODELS = {
-    'gemini-2.5-flash-lite': 'gemini-2.5-flash',
+    'gemini-2.5-flash': 'gemini-2.5-flash-lite',
     'gemini-2.5-pro': 'gemini-2.5-flash',
-    'gemini-2.5-flash': 'gemini-2.5-pro',
 };
 
 const isHighDemandError = (err) => {
@@ -69,7 +68,7 @@ const callGeminiWithFallback = async (options) => {
         return { response, modelUsed: primaryModel };
     } catch (err) {
         if (isHighDemandError(err)) {
-            const fallbackModel = FALLBACK_MODELS[primaryModel] || 'gemini-2.5-flash';
+            const fallbackModel = FALLBACK_MODELS[primaryModel] || 'gemini-2.5-flash-lite';
             console.warn(`Model ${primaryModel} unavailable (high demand), falling back to ${fallbackModel}`);
             // Brief backoff before retry
             await new Promise(r => setTimeout(r, 1500));
@@ -255,7 +254,7 @@ const generateAIResponse = async (messages, user, selectedPolicy = null, availab
         }
 
         const { response, modelUsed } = await callGeminiWithFallback({
-            model: "gemini-2.5-pro",
+            model: "gemini-2.5-flash",
             contents: history, // Pass the full conversation history
             config: {
                 systemInstruction: systemContent, // System prompt goes here
