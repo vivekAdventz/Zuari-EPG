@@ -71,7 +71,10 @@ const getMessages = async (req, res, next) => {
         ]);
 
         // Build lookup data
-        const feedbackResponseIds = feedbacks.map(f => f.responseId.toString());
+        const feedbackResponseIds = feedbacks.map(f => ({
+            id: f.responseId.toString(),
+            thumbs: f.thumbs
+        }));
         const ticketResponseMap = tickets.map(t => ({ responseId: t.responseMessageId.toString(), ticketNumber: t.ticketNumber }));
 
         res.status(200).json({

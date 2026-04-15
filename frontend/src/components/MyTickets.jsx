@@ -109,6 +109,7 @@ const MyTickets = ({ onBack }) => {
     const [raiseModalView, setRaiseModalView] = useState('form'); // 'form' | 'preview' | 'success'
     const [isGeneratingAi, setIsGeneratingAi] = useState(false);
     const [aiAnalysis, setAiAnalysis] = useState({ subject: '', description: '', categoryName: '', categoryId: '' });
+    const [showForceSubmit, setShowForceSubmit] = useState(false);
     
     const [raising, setRaising] = useState(false);
     const [raiseError, setRaiseError] = useState('');
@@ -160,13 +161,13 @@ const MyTickets = ({ onBack }) => {
     const handleRaisePreview = async () => {
         setRaiseError('');
         
-        if (regarding.length < 40) {
-            setRaiseError(`Regarding must be at least 40 characters (current: ${regarding.length})`);
+        if (regarding.length < 30) {
+            setRaiseError(`Regarding must be at least 30 characters (current: ${regarding.length})`);
             return;
         }
 
-        if (story.length < 200) {
-            setRaiseError(`Story must be at least 200 characters (current: ${story.length})`);
+        if (story.length < 100) {
+            setRaiseError(`Story must be at least 100 characters (current: ${story.length})`);
             return;
         }
 
@@ -193,6 +194,7 @@ const MyTickets = ({ onBack }) => {
                 categoryId: synthesis.categoryId
             });
             setQaEvaluation(evaluation);
+            setShowForceSubmit(false); // Reset confirmation state
             setRaiseModalView('preview');
         } catch (err) {
             setRaiseError(err.message || 'Failed to analyze ticket. Please try again.');
@@ -231,6 +233,7 @@ const MyTickets = ({ onBack }) => {
         setRaiseError('');
         setQaEvaluation(null);
         setRaiseSuccessTicket(null);
+        setShowForceSubmit(false);
         setAiAnalysis({ subject: '', description: '', categoryName: '', categoryId: '' });
     };
 
@@ -242,7 +245,7 @@ const MyTickets = ({ onBack }) => {
         return text.trim().split(/\s+/).filter(word => word.length > 0).length;
     };
 
-    const isFormValid = intent && regarding.trim().length >= 40 && story.trim().length >= 200;
+    const isFormValid = intent && regarding.trim().length >= 30 && story.trim().length >= 100;
 
     return (
         <div className="flex-1 flex flex-col h-full bg-transparent relative overflow-hidden">
@@ -299,8 +302,8 @@ const MyTickets = ({ onBack }) => {
                                 <div>
                                     <div className="flex justify-between items-center mb-2">
                                         <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest">Regarding</label>
-                                        <span className={`text-[10px] font-medium ${regarding.length >= 40 ? 'text-green-500' : 'text-slate-400'}`}>
-                                            {regarding.length}/40 min
+                                        <span className={`text-[10px] font-medium ${regarding.length >= 30 ? 'text-green-500' : 'text-slate-400'}`}>
+                                            {regarding.length}/60
                                         </span>
                                     </div>
                                     <input
@@ -316,13 +319,13 @@ const MyTickets = ({ onBack }) => {
                                 <div>
                                     <div className="flex justify-between items-center mb-2">
                                         <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest">Tell us the story...</label>
-                                        <span className={`text-[10px] font-medium ${story.length >= 200 ? 'text-green-500' : 'text-slate-400'}`}>
-                                            {story.length}/200 min
+                                        <span className={`text-[10px] font-medium ${story.length >= 100 ? 'text-green-500' : 'text-slate-400'}`}>
+                                            {story.length}/600
                                         </span>
                                     </div>
                                     <textarea
                                         maxLength={600}
-                                        placeholder="Describe your issue or request in detail (min 200 chars)"
+                                        placeholder="Describe your issue or request in detail (min 100 chars)"
                                         rows="4"
                                         value={story}
                                         onChange={(e) => setStory(e.target.value)}
@@ -423,6 +426,11 @@ const MyTickets = ({ onBack }) => {
                                                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
                                                         {qaEvaluation.necessary ? qaEvaluation.reason : "AI identified a possible answer in company policies. You can still proceed if you need human assistance."}
                                                     </p>
+                                                    {!qaEvaluation.necessary && qaEvaluation.preciseAnswer && (
+                                                        <p className="mt-2 text-xs text-slate-600 dark:text-slate-300 leading-relaxed font-medium">
+                                                            <span className="font-bold text-slate-700 dark:text-slate-200">AI Answer:</span> {qaEvaluation.preciseAnswer}
+                                                        </p>
+                                                    )}
                                                 </div>
                                             </div>
                                         </div>
@@ -431,29 +439,48 @@ const MyTickets = ({ onBack }) => {
 
                                 {raiseError && <p className="text-xs text-red-500 ml-1">{raiseError}</p>}
 
-                                <div className="flex space-x-3">
-                                    <button
-                                        onClick={handleBackToForm}
-                                        className="flex-1 py-4 rounded-2xl font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all flex items-center justify-center space-x-2"
-                                    >
-                                        <ChevronLeft size={18} />
-                                        <span>Edit</span>
-                                    </button>
-                                    <button
-                                        onClick={handleRaiseSubmit}
-                                        disabled={raising}
-                                        className="flex-[2] py-4 rounded-2xl font-bold text-white bg-orange-500 hover:bg-orange-600 shadow-xl shadow-orange-200 dark:shadow-none transition-all flex items-center justify-center space-x-2 active:scale-[0.98]"
-                                    >
-                                        {raising ? (
-                                            <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                                        ) : (
-                                            <>
-                                                <span>Confirm & Submit</span>
-                                                <Send size={18} />
-                                            </>
-                                        )}
-                                    </button>
-                                </div>
+                                {qaEvaluation && !qaEvaluation.necessary && !showForceSubmit ? (
+                                    <div className="flex gap-3">
+                                        <button
+                                            onClick={closeRaiseModal}
+                                            className="flex-1 py-4 px-2 rounded-2xl font-bold border border-green-200 dark:border-green-800/40 text-green-700 dark:text-green-400 bg-green-50/50 dark:bg-green-900/10 hover:bg-green-100 dark:hover:bg-green-900/30 transition-all flex items-center justify-center gap-2 whitespace-nowrap"
+                                        >
+                                            <span className="text-lg leading-none">👍</span>
+                                            <span>This helped</span>
+                                        </button>
+                                        <button
+                                            onClick={() => setShowForceSubmit(true)}
+                                            className="flex-1 py-4 px-2 rounded-2xl font-bold border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all flex items-center justify-center gap-2 whitespace-nowrap"
+                                        >
+                                            <span className="text-lg leading-none">❓</span>
+                                            <span>Still need help</span>
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className="flex space-x-3">
+                                        <button
+                                            onClick={handleBackToForm}
+                                            className="flex-1 py-4 rounded-2xl font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all flex items-center justify-center space-x-2"
+                                        >
+                                            <ChevronLeft size={18} />
+                                            <span>Edit</span>
+                                        </button>
+                                        <button
+                                            onClick={handleRaiseSubmit}
+                                            disabled={raising}
+                                            className="flex-[2] py-4 rounded-2xl font-bold text-white bg-orange-500 hover:bg-orange-600 shadow-xl shadow-orange-200 dark:shadow-none transition-all flex items-center justify-center space-x-2 active:scale-[0.98]"
+                                        >
+                                            {raising ? (
+                                                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                                            ) : (
+                                                <>
+                                                    <span>Confirm & Submit</span>
+                                                    <Send size={18} />
+                                                </>
+                                            )}
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         )}
 
