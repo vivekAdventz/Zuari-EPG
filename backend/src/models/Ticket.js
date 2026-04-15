@@ -21,6 +21,8 @@ const ticketSchema = new mongoose.Schema(
         description:        { type: String, default: '' },
         theme:              { type: mongoose.Schema.Types.ObjectId, ref: 'QuestionTheme', default: null },
         themeName:          { type: String, default: 'Other / Unclassified' },
+        // Stores the resolved function code (e.g. PAY, LEV) for display even if theme is deleted
+        themeCode:          { type: String, default: 'OTH' },
         assignedTo:         [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
         status:             { type: String, enum: ['open', 'hold', 'resolved'], default: 'open' },
         hrResponse:         { type: String, default: '' },
@@ -30,12 +32,30 @@ const ticketSchema = new mongoose.Schema(
 
 ticketSchema.pre('save', async function () {
     if (!this.ticketNumber) {
-        const counter = await Counter.findByIdAndUpdate(
-            'ticketNumber',
-            { $inc: { seq: 1 } },
-            { new: true, upsert: true }
-        );
-        this.ticketNumber = `#HR-${String(counter.seq).padStart(5, '0')}`;
+        // Use the stored themeCode, or fall back to 'OTH'
+        const funcCode = (this.themeCode || 'OTH').toUpperCase();
+
+        // Increment two counters atomically:
+        // 1. Per-category counter  → position of this ticket within its category
+        // 2. Global counter        → overall ticket sequence number
+        const [categoryCounter, globalCounter] = await Promise.all([
+            Counter.findByIdAndUpdate(
+                `ticket:${funcCode}`,
+                { $inc: { seq: 1 } },
+                { new: true, upsert: true }
+            ),
+            Counter.findByIdAndUpdate(
+                'ticketNumber',
+                { $inc: { seq: 1 } },
+                { new: true, upsert: true }
+            )
+        ]);
+
+        const catSeq    = String(categoryCounter.seq).padStart(5, '0');
+        const globalSeq = String(globalCounter.seq).padStart(5, '0');
+
+        // Format: HR-PAY-00001-00001
+        this.ticketNumber = `HR-${funcCode}-${catSeq}-${globalSeq}`;
     }
 });
 
