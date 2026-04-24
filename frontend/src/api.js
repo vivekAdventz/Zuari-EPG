@@ -23,7 +23,7 @@ export const login = async (email, password) => {
 };
 
 
-const getAuthHeaders = () => {
+export const getAuthHeaders = () => {
     const userInfo = localStorage.getItem('userInfo');
     if (userInfo) {
         const { token } = JSON.parse(userInfo);
@@ -63,7 +63,11 @@ export const getMessages = async (conversationId) => {
         if (!response.ok) {
             throw new Error(data.message || 'Failed to fetch messages');
         }
-        return data.data;
+        return {
+            messages: data.data,
+            feedbackResponseIds: data.feedbackResponseIds || [],
+            ticketResponseMap: data.ticketResponseMap || [],
+        };
     } catch (error) {
         throw error;
     }
@@ -86,12 +90,12 @@ export const createConversation = async (title) => {
     }
 };
 
-export const sendMessage = async (conversationId, content, selectedPolicy = null) => {
+export const sendMessage = async (conversationId, content, selectedPolicy = null, isRegenerate = false) => {
     try {
         const response = await fetch(`${API_URL}/api/chat/message`, {
             method: 'POST',
             headers: getAuthHeaders(),
-            body: JSON.stringify({ conversationId, content, selectedPolicy }),
+            body: JSON.stringify({ conversationId, content, selectedPolicy, isRegenerate }),
         });
         const data = await response.json();
         if (!response.ok) {
@@ -704,6 +708,22 @@ export const deletePolicyCategory = async (id) => {
     return d;
 };
 
+// Question Themes (predefined)
+export const getQuestionThemes = async () => {
+    const r = await fetch(`${API_URL}/api/admin/config/question-themes`, { headers: getAuthHeaders() });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.message || 'Failed to fetch question themes');
+    return d.data;
+};
+
+// Question Themes (employee-accessible)
+export const getEmployeeQuestionThemes = async () => {
+    const r = await fetch(`${API_URL}/api/chat/question-themes`, { headers: getAuthHeaders() });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.message || 'Failed to fetch question themes');
+    return d.data;
+};
+
 export const submitFeedback = async ({ queryId, responseId, userQuestion, aiResponse, thumbs, description }) => {
     try {
         const response = await fetch(`${API_URL}/api/chat/feedback`, {
@@ -719,6 +739,61 @@ export const submitFeedback = async ({ queryId, responseId, userQuestion, aiResp
     } catch (error) {
         throw error;
     }
+};
+
+export const raiseTicket = async ({ queryId, responseId, userQuestion, aiResponse, description, subject, categoryId }) => {
+    const response = await fetch(`${API_URL}/api/chat/raise-ticket`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ queryId, responseId, userQuestion, aiResponse, description, subject, categoryId }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Failed to raise ticket');
+    return data.data;
+};
+
+export const evaluateTicket = async ({ conversationMessages, userQuestion, aiResponse, selectedPolicy }) => {
+    const response = await fetch(`${API_URL}/api/chat/evaluate-ticket`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ conversationMessages, userQuestion, aiResponse, selectedPolicy }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Failed to evaluate ticket');
+    return data.data;
+};
+
+export const evaluateIndependentTicket = async ({ subject, description }) => {
+    const response = await fetch(`${API_URL}/api/chat/evaluate-independent-ticket`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ subject, description }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Failed to evaluate ticket');
+    return data.data;
+};
+
+export const generateTicketFields = async ({ description }) => {
+    const response = await fetch(`${API_URL}/api/chat/generate-ticket-fields`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ description }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Failed to generate ticket fields');
+    return data.data;
+};
+
+export const getMyTickets = async (filters = {}) => {
+    const queryParams = new URLSearchParams(filters).toString();
+    const response = await fetch(`${API_URL}/api/chat/my-tickets?${queryParams}`, {
+        method: 'GET',
+        headers: getAuthHeaders(),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Failed to fetch tickets');
+    return data;
 };
 
 export const submitGeneralFeedback = async ({ rating, category, improvementAreas, successAreas, comment }) => {
@@ -834,4 +909,196 @@ export const exportInsightsFeedbackAnalysisCSV = async ({ entity = 'all', level 
     a.click();
     window.URL.revokeObjectURL(url);
     document.body.removeChild(a);
+};
+// ── HROps Management (Admin) ──────────────────────────────────────────────────
+
+export const getHrOpsAssignments = async () => {
+    const res = await fetch(`${API_URL}/api/admin/hrops`, { headers: getAuthHeaders() });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to fetch HROps assignments');
+    return data;
+};
+
+export const assignHrOps = async ({ themeId, userId }) => {
+    const res = await fetch(`${API_URL}/api/admin/hrops/assign`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ themeId, userId }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to assign HROps');
+    return data;
+};
+
+export const unassignHrOps = async ({ themeId, userId }) => {
+    const res = await fetch(`${API_URL}/api/admin/hrops/unassign`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ themeId, userId }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to unassign HROps');
+    return data;
+};
+
+export const toggleHrOpsUserStatus = async ({ userId, status }) => {
+    const res = await fetch(`${API_URL}/api/admin/hrops/status`, {
+        method: 'PATCH',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ userId, status }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to update status');
+    return data;
+};
+
+export const updateThemeClosure = async ({ themeId, daysToClosure }) => {
+    const res = await fetch(`${API_URL}/api/admin/hrops/closure`, {
+        method: 'PATCH',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ themeId, daysToClosure }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to update days to closure');
+    return data;
+};
+
+// ── HROps Dashboard (HROps side) ─────────────────────────────────────────────
+
+export const getHrOpsStats = async () => {
+    const res = await fetch(`${API_URL}/api/hrops/stats`, { headers: getAuthHeaders() });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to fetch stats');
+    return data.data;
+};
+
+export const getAssignedTickets = async (filters = {}) => {
+    const queryParams = new URLSearchParams(filters).toString();
+    const res = await fetch(`${API_URL}/api/hrops/tickets?${queryParams}`, { headers: getAuthHeaders() });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to fetch assigned tickets');
+    return data;
+};
+
+export const updateAssignedTicket = async (id, { status, hrResponse }) => {
+    const res = await fetch(`${API_URL}/api/hrops/tickets/${id}`, {
+        method: 'PATCH',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ status, hrResponse }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to update ticket');
+    return data.data;
+};
+
+export const getHrOpsTicketMessages = async (ticketId) => {
+    const res = await fetch(`${API_URL}/api/hrops/tickets/${ticketId}/messages`, { headers: getAuthHeaders() });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to fetch messages');
+    return data.data;
+};
+
+export const sendHrOpsTicketMessage = async (ticketId, message, attachment = null, requestUploadType = null) => {
+    const headers = getAuthHeaders();
+    let body;
+
+    if (attachment) {
+        // Use FormData for file uploads
+        const formData = new FormData();
+        if (message) formData.append('message', message);
+        formData.append('file', attachment);
+        if (requestUploadType) formData.append('requestUploadType', requestUploadType);
+        delete headers['Content-Type']; // Let browser set multipart boundary
+        body = formData;
+    } else {
+        body = JSON.stringify({ message, requestUploadType });
+    }
+
+    const res = await fetch(`${API_URL}/api/hrops/tickets/${ticketId}/messages`, {
+        method: 'POST',
+        headers,
+        body,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to send message');
+    return data.data;
+};
+
+export const getEmployeeTicketMessages = async (ticketId) => {
+    const res = await fetch(`${API_URL}/api/chat/tickets/${ticketId}/messages`, { headers: getAuthHeaders() });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to fetch messages');
+    return data.data;
+};
+
+export const sendEmployeeTicketMessage = async (ticketId, message, attachment = null) => {
+    const headers = getAuthHeaders();
+    let body;
+
+    if (attachment) {
+        const formData = new FormData();
+        if (message) formData.append('message', message);
+        formData.append('file', attachment);
+        delete headers['Content-Type'];
+        body = formData;
+    } else {
+        body = JSON.stringify({ message });
+    }
+
+    const res = await fetch(`${API_URL}/api/chat/tickets/${ticketId}/messages`, {
+        method: 'POST',
+        headers,
+        body,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to send message');
+    return data.data;
+};
+
+// ── Admin Ticket Monitor ───────────────────────────────────────────────────
+export const getAdminTicketStats = async () => {
+    const res = await fetch(`${API_URL}/api/admin/tickets/stats`, { headers: getAuthHeaders() });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to fetch ticket stats');
+    return data.data;
+};
+
+export const getAdminTickets = async (filters = {}) => {
+    const queryParams = new URLSearchParams(filters).toString();
+    const res = await fetch(`${API_URL}/api/admin/tickets?${queryParams}`, { headers: getAuthHeaders() });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to fetch tickets');
+    return data;
+};
+
+export const exportAdminTickets = async (filters = {}) => {
+    const queryParams = new URLSearchParams(filters).toString();
+    const res = await fetch(`${API_URL}/api/admin/tickets/export?${queryParams}`, { headers: getAuthHeaders() });
+    if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.message || 'Failed to export tickets');
+    }
+    return await res.blob();
+};
+
+export const getAdminHrOpsUsers = async () => {
+    const res = await fetch(`${API_URL}/api/admin/hrops`, { headers: getAuthHeaders() });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to fetch HROps users');
+    // The endpoint returns { data: [themes], employees: [hrOpsUsers] }
+    return data.employees || [];
+};
+
+export const getAdminThemes = async () => {
+    const res = await fetch(`${API_URL}/api/admin/config/question-themes`, { headers: getAuthHeaders() });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to fetch themes');
+    return data.data || [];
+};
+
+export const getConversationsWithFeedback = async (page = 1) => {
+    const res = await fetch(`${API_URL}/api/admin/feedbacks/conversations?page=${page}`, { headers: getAuthHeaders() });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to fetch conversations feedback');
+    return data.data || [];
 };

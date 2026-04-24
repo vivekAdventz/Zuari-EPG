@@ -1,6 +1,83 @@
 import genAI from '../config/gemini.js';
 import config from '../config/env.js';
 import { searchPolicy } from './search.js';
+import ApiUsage from '../models/ApiUsage.js';
+
+const MODEL_PRICING = {
+    'gemini-3.1-flash-lite': { prompt: 0.0375, completion: 0.15 },
+    'gemini-3.1-flash': { prompt: 0.075, completion: 0.30 },
+    'gemini-2.5-flash-lite': { prompt: 0.0375, completion: 0.15 },
+    'gemini-2.5-flash': { prompt: 0.075, completion: 0.30 },
+    'gemini-2.5-pro': { prompt: 1.25, completion: 5.00 },
+    'gemini-pro': { prompt: 0.50, completion: 1.50 }
+};
+
+const getModelPricing = (modelName) => {
+    // Exact match
+    if (MODEL_PRICING[modelName]) return MODEL_PRICING[modelName];
+    // Partial Match (dynamic fallback)
+    if (modelName.includes('pro')) return MODEL_PRICING['gemini-1.5-pro'];
+    return MODEL_PRICING['gemini-1.5-flash'];
+};
+
+const logApiUsage = async (response, operation, modelName = "gemini-2.5-flash", userId = null) => {
+    try {
+        if (!response || !response.usageMetadata) return;
+
+        let promptTokens = response.usageMetadata.promptTokenCount || 0;
+        let completionTokens = response.usageMetadata.candidatesTokenCount || 0;
+        let totalTokens = response.usageMetadata.totalTokenCount || 0;
+
+        const rates = getModelPricing(modelName);
+        const cost = ((promptTokens / 1000000) * rates.prompt) + ((completionTokens / 1000000) * rates.completion);
+
+        await ApiUsage.create({
+            model: modelName,
+            promptTokens,
+            completionTokens,
+            totalTokens,
+            cost,
+            operation,
+            userId
+        });
+    } catch (err) {
+        console.error("Failed to log API usage:", err);
+    }
+};
+
+const FALLBACK_MODELS = {
+    'gemini-2.5-flash': 'gemini-2.5-flash-lite',
+    'gemini-2.5-pro': 'gemini-2.5-flash',
+};
+
+const isHighDemandError = (err) => {
+    const msg = (err?.message || err?.statusText || err?.toString() || '').toLowerCase();
+    return msg.includes('high demand') || msg.includes('rate limit') || msg.includes('resource exhausted')
+        || msg.includes('overloaded') || msg.includes('503') || msg.includes('429');
+};
+
+/**
+ * Wrapper around genAI.models.generateContent that catches high-demand /
+ * rate-limit errors and retries with a fallback model.
+ * Returns { response, modelUsed }.
+ */
+const callGeminiWithFallback = async (options) => {
+    const primaryModel = options.model;
+    try {
+        const response = await genAI.models.generateContent(options);
+        return { response, modelUsed: primaryModel };
+    } catch (err) {
+        if (isHighDemandError(err)) {
+            const fallbackModel = FALLBACK_MODELS[primaryModel] || 'gemini-2.5-flash-lite';
+            console.warn(`Model ${primaryModel} unavailable (high demand), falling back to ${fallbackModel}`);
+            // Brief backoff before retry
+            await new Promise(r => setTimeout(r, 1500));
+            const response = await genAI.models.generateContent({ ...options, model: fallbackModel });
+            return { response, modelUsed: fallbackModel };
+        }
+        throw err;
+    }
+};
 
 const SYSTEM_PROMPT_TEMPLATE = `
 You are a helpful HR Policy Assistant for employees of the organization.
@@ -176,7 +253,7 @@ const generateAIResponse = async (messages, user, selectedPolicy = null, availab
             history.push(lastMsg);
         }
 
-        const response = await genAI.models.generateContent({
+        const { response, modelUsed } = await callGeminiWithFallback({
             model: "gemini-2.5-flash",
             contents: history, // Pass the full conversation history
             config: {
@@ -194,6 +271,8 @@ const generateAIResponse = async (messages, user, selectedPolicy = null, availab
         } else if (response.response && typeof response.response.text === 'function') {
             text = response.response.text();
         }
+
+        await logApiUsage(response, 'chat', modelUsed, user?._id);
 
         return {
             content: text,
@@ -234,7 +313,7 @@ Example format:
 ]
         `;
 
-        const response = await genAI.models.generateContent({
+        const { response, modelUsed } = await callGeminiWithFallback({
             model: "gemini-2.5-flash",
             contents: prompt,
             config: {
@@ -242,6 +321,8 @@ Example format:
                 maxOutputTokens: 1024,
             }
         });
+
+        await logApiUsage(response, 'faq_generation', modelUsed);
 
         let text = response.text || (typeof response.text === 'function' ? response.text() : "");
         text = text.replace(/```json/g, "").replace(/```/g, "").trim();
@@ -264,7 +345,7 @@ const classifyQuestionTheme = async (question, themes = []) => {
 
         const themeList = themes.map((t, i) => `${i + 1}. Theme: "${t.name}"\n   Definition: ${t.description || 'N/A'}\n   Examples: ${t.exampleQueries || 'N/A'}`).join('\n\n');
 
-        const response = await genAI.models.generateContent({
+        const { response, modelUsed } = await callGeminiWithFallback({
             model: 'gemini-2.5-flash',
             contents: [{ role: 'user', parts: [{ text: `Question: "${question}"` }] }],
             config: {
@@ -281,6 +362,8 @@ RULES:
                 maxOutputTokens: 1024
             }
         });
+
+        await logApiUsage(response, 'theme_classification', modelUsed);
 
 
         const text = (typeof response.response?.text === 'function' ? response.response.text() :
@@ -333,7 +416,7 @@ export const clusterDemandGaps = async (feedbacks) => {
         Use the [ID:x] numbers provided above for the "indices" array.
         `;
 
-        const response = await genAI.models.generateContent({
+        const { response, modelUsed } = await callGeminiWithFallback({
             model: "gemini-2.5-flash",
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
             config: {
@@ -342,6 +425,8 @@ export const clusterDemandGaps = async (feedbacks) => {
                 temperature: 0.2
             }
         });
+
+        await logApiUsage(response, 'demand_gap_clustering', modelUsed);
 
         const responseText = (typeof response.response?.text === 'function' ? response.response.text() :
             typeof response.text === 'function' ? response.text() :
@@ -391,7 +476,7 @@ export const generateThemesFromPolicies = async (policyContext) => {
         ["Health Insurance Benefits", "Remote Work Policy", "Expense Reimbursement"]
         `;
 
-        const response = await genAI.models.generateContent({
+        const { response, modelUsed } = await callGeminiWithFallback({
             model: "gemini-2.5-flash",
             contents: [{ role: 'user', parts: [{ text: prompt }] }],
             config: {
@@ -400,6 +485,8 @@ export const generateThemesFromPolicies = async (policyContext) => {
                 maxOutputTokens: 2048
             }
         });
+
+        await logApiUsage(response, 'policy_theme_generation', modelUsed);
 
         let responseText = "";
         if (typeof response.text === 'function') {
@@ -429,10 +516,297 @@ export const generateThemesFromPolicies = async (policyContext) => {
     }
 }
 
+/**
+ * Evaluate whether raising a ticket is necessary given the conversation context.
+ * Uses Gemini 2.5 Flash for fast evaluation.
+ */
+const evaluateTicketNecessity = async (conversationMessages = [], userQuestion, aiResponse, user = null, selectedPolicy = null) => {
+    try {
+        if (!config.GEMINI_API_KEY) {
+            return { necessary: true, reason: 'Evaluation unavailable.' };
+        }
+
+        const contextSummary = conversationMessages
+            .slice(-10)
+            .map(m => `${m.role === 'user' ? 'Employee' : 'AI'}: ${(m.content || '').replace(/<[^>]*>/g, '').substring(0, 300)}`)
+            .join('\n');
+
+        // Search vector DB for relevant policy context
+        let policyContext = '';
+        if (user && userQuestion) {
+            try {
+                const searchResults = await searchPolicy(userQuestion, user, selectedPolicy, 20);
+                if (searchResults.length > 0) {
+                    policyContext = searchResults.map(r =>
+                        `--- POLICY: ${r.policy} ---\n${r.content}\n--- END ---`
+                    ).join('\n');
+                }
+            } catch (searchErr) {
+                console.error('Policy search for ticket evaluation failed:', searchErr);
+            }
+        }
+
+        const userContent = [
+            `RECENT CONVERSATION:\n${contextSummary}`,
+            `LATEST EMPLOYEE QUESTION:\n${userQuestion}`,
+            `AI RESPONSE PROVIDED:\n${(aiResponse || '').replace(/<[^>]*>/g, '').substring(0, 1500)}`,
+            policyContext ? `RELEVANT POLICY EXCERPTS:\n${policyContext}` : ''
+        ].filter(Boolean).join('\n\n');
+
+        const { response, modelUsed } = await callGeminiWithFallback({
+            model: 'gemini-2.5-flash-lite',
+            contents: [{ role: 'user', parts: [{ text: userContent }] }],
+            config: {
+                systemInstruction: `You are a Quality Assurance evaluator for an HR support system. An employee wants to raise a support ticket after receiving an AI response.
+
+Your job is to evaluate whether the AI response already adequately addresses the employee's question.
+
+Evaluate based on:
+1. Did the AI response directly answer the question?
+2. Is the response accurate, complete and actionable?
+3. Is the query about something the AI cannot handle (e.g. updating records, processing requests)?
+4. Do the RELEVANT POLICY EXCERPTS (if provided) contain information that adequately answers the employee's question but the AI response missed or got wrong?
+5. if employee policy experts has content in which another personal approval is required set necessary to false
+4. If RELEVANT POLICY EXCERPTS state that the employee should obtain approval from their Manager, Reporting Head, Department Head, or similar roles, then a ticket to HR is NOT necessary yet. Set "necessary": false and explain that they should seek approval as per policy.
+
+
+Return ONLY valid JSON:
+{
+  "necessary": true/false,
+  "confidence": "high"/"medium"/"low",
+  "reason": "Brief 1-2 sentence explanation of your assessment",
+  "suggestion": "If not necessary, a brief suggestion for the employee on what to try instead",
+  "preciseAnswer": "If necessary is false, provide a direct, concise, and helpful answer to the employee's question based strictly on the RELEVANT POLICY EXCERPTS. Leave empty if necessary is true."
+}
+
+IMPORTANT: Only mark necessary: true if a human HR representative is actually needed to perform an action or give specialized advice that isn't in the docs.`,
+                temperature: 0.2,
+                maxOutputTokens: 1024,
+                thinkingConfig: { thinkingBudget: 0 }
+            }
+        });
+
+        await logApiUsage(response, 'ticket_evaluation', modelUsed);
+
+        let text = '';
+        try {
+            text = (typeof response.text === 'function' ? response.text() : response.text) || '';
+        } catch (_) {
+            if (response.candidates?.[0]?.content?.parts) {
+                text = response.candidates[0].content.parts
+                    .filter(p => p.text)
+                    .map(p => p.text)
+                    .join('');
+            }
+        }
+        if (!text) return { necessary: true, reason: 'Evaluation could not be completed.' };
+
+        const first = text.indexOf('{');
+        const last = text.lastIndexOf('}');
+        if (first === -1 || last === -1) return { necessary: true, reason: 'Evaluation could not be completed.' };
+
+        return JSON.parse(text.substring(first, last + 1));
+    } catch (err) {
+        console.error('evaluateTicketNecessity error:', err);
+        return { necessary: true, reason: 'Evaluation unavailable. You may proceed.' };
+    }
+};
+
+/**
+ * Evaluate whether an independent ticket (no chat context) truly needs human HR intervention.
+ * Searches ALL policies for the user's entity in the vector DB and lets the LLM decide.
+ */
+const evaluateIndependentTicket = async (subject, description, user) => {
+    try {
+        if (!config.GEMINI_API_KEY) {
+            return { necessary: true, reason: 'Evaluation unavailable.' };
+        }
+
+        const query = `${subject} ${description}`.trim();
+
+        // Search vector DB across all policies for the user's entity
+        let policyContext = '';
+        if (user && query) {
+            try {
+                const searchResults = await searchPolicy(query, user, null, 20);
+                if (searchResults.length > 0) {
+                    policyContext = searchResults.map(r =>
+                        `--- POLICY: ${r.policy} ---\n${r.content}\n--- END ---`
+                    ).join('\n');
+                }
+            } catch (searchErr) {
+                console.error('Policy search for independent ticket evaluation failed:', searchErr);
+            }
+        }
+
+        const userContent = [
+            `EMPLOYEE TICKET SUBJECT:\n${subject}`,
+            `EMPLOYEE TICKET DESCRIPTION:\n${description}`,
+            policyContext ? `RELEVANT POLICY EXCERPTS:\n${policyContext}` : ''
+        ].filter(Boolean).join('\n\n');
+
+        const { response, modelUsed } = await callGeminiWithFallback({
+            model: 'gemini-2.5-flash-lite',
+            contents: [{ role: 'user', parts: [{ text: userContent }] }],
+            config: {
+                systemInstruction: `You are a Quality Assurance evaluator for an HR support system. An employee wants to raise a support ticket directly (without chatting with AI first).
+
+Your job is to evaluate whether the employee's question can already be answered by the company's HR policies, or if it genuinely needs human HR intervention.
+
+Evaluate based on:
+1. Do the RELEVANT POLICY EXCERPTS (if provided) contain clear, direct answers to the employee's question?
+2. Does the query require HUMAN HR intervention (e.g. updating master records, processing payments, resolving formal disputes)?
+3. If RELEVANT POLICY EXCERPTS state that the employee should obtain approval from their Manager, Reporting Head, Department Head, or similar roles, then a ticket to HR is NOT necessary yet. Set "necessary": false and explain that they should seek approval as per policy.
+4. If the policy provides a clear "next step" that doesn't involve HR directly (like using a specific portal or getting manager sign-off), set "necessary": false.
+
+Return ONLY valid JSON:
+{
+  "necessary": true/false,
+  "confidence": "high"/"medium"/"low",
+  "reason": "Brief 1-2 sentence explanation of your assessment",
+  "suggestion": "If not necessary, a brief suggestion for the employee on what to try instead (e.g. which policy to check in AskHR chat)",
+  "preciseAnswer": "If necessary is false, provide a direct, concise, and helpful answer to the employee's question based strictly on the RELEVANT POLICY EXCERPTS. Leave empty if necessary is true."
+}
+
+IMPORTANT: Only mark necessary: true if a human HR representative is actually needed to perform an action or give specialized advice that isn't in the docs.`,
+                temperature: 0.2,
+                maxOutputTokens: 1024,
+                thinkingConfig: { thinkingBudget: 0 }
+            }
+        });
+
+        await logApiUsage(response, 'independent_ticket_evaluation', modelUsed);
+
+        let text = '';
+        try {
+            text = (typeof response.text === 'function' ? response.text() : response.text) || '';
+        } catch (_) {
+            if (response.candidates?.[0]?.content?.parts) {
+                text = response.candidates[0].content.parts
+                    .filter(p => p.text)
+                    .map(p => p.text)
+                    .join('');
+            }
+        }
+        if (!text) return { necessary: true, reason: 'Evaluation could not be completed.' };
+
+        const first = text.indexOf('{');
+        const last = text.lastIndexOf('}');
+        if (first === -1 || last === -1) return { necessary: true, reason: 'Evaluation could not be completed.' };
+
+        return JSON.parse(text.substring(first, last + 1));
+    } catch (err) {
+        console.error('evaluateIndependentTicket error:', err);
+        return { necessary: true, reason: 'Evaluation unavailable. You may proceed.' };
+    }
+};
+
+/**
+ * Generate ticket fields (subject, category) from a plain description using AI.
+ * @param {string} description – the employee's free-text description
+ * @param {Array}  categories  – available QuestionTheme objects [{_id, name, description}, …]
+ * @param {Object} user        – authenticated user object
+ * @returns {{ subject: string, categoryId: string, categoryName: string }}
+ */
+const generateTicketFields = async (description, categories, user) => {
+    try {
+        if (!config.GEMINI_API_KEY) {
+            return { subject: '', categoryId: '', categoryName: '' };
+        }
+
+        // Build a list of valid categories for the prompt
+        const categoryList = categories.map(c => `ID: ${c._id} | Name: ${c.name} | Description: ${c.description || ''}`).join('\n');
+
+        // Search policies so the model has domain context
+        let policyContext = '';
+        if (user && description) {
+            try {
+                const searchResults = await searchPolicy(description, user, null, 15);
+                if (searchResults.length > 0) {
+                    policyContext = searchResults.map(r =>
+                        `--- POLICY: ${r.policy} ---\n${r.content}\n--- END ---`
+                    ).join('\n');
+                }
+            } catch (searchErr) {
+                console.error('Policy search for generateTicketFields failed:', searchErr);
+            }
+        }
+
+        const userContent = [
+            `EMPLOYEE DESCRIPTION:\n${description}`,
+            policyContext ? `RELEVANT POLICY EXCERPTS:\n${policyContext}` : '',
+            `AVAILABLE CATEGORIES:\n${categoryList}`
+        ].filter(Boolean).join('\n\n');
+
+        const { response, modelUsed } = await callGeminiWithFallback({
+            model: 'gemini-2.5-flash',
+            contents: [{ role: 'user', parts: [{ text: userContent }] }],
+            config: {
+                systemInstruction: `You are an HR ticket assistant. An employee has written a description of their issue. Based on the description and available HR policy context, generate the following fields for the ticket:
+
+1. **subject** – A concise, clear summary of the issue (max 120 characters).
+2. **description** – A professional, cohesive, and detailed synthesis of the employee's provided description, story, and intent. Ensure it flows naturally and is respectful.
+3. **categoryId** – The ID of the most appropriate category from the AVAILABLE CATEGORIES list.
+4. **categoryName** – The name of the chosen category.
+
+Rules:
+- The subject should capture the core issue in a short phrase.
+- The description should be a single, well-structured paragraph or list that summarizes the entire context professionally.
+- Pick the single best matching category. If none fit well, pick "Other / Unclassified".
+- Use ONLY category IDs from the provided list.
+
+Return ONLY valid JSON:
+{
+  "subject": "...",
+  "description": "...",
+  "categoryId": "...",
+  "categoryName": "..."
+}`,
+                temperature: 0.3,
+                maxOutputTokens: 256,
+                thinkingConfig: { thinkingBudget: 0 }
+            }
+        });
+
+        await logApiUsage(response, 'generate_ticket_fields', modelUsed, user?._id);
+
+        let text = '';
+        try {
+            text = (typeof response.text === 'function' ? response.text() : response.text) || '';
+        } catch (_) {
+            if (response.candidates?.[0]?.content?.parts) {
+                text = response.candidates[0].content.parts
+                    .filter(p => p.text)
+                    .map(p => p.text)
+                    .join('');
+            }
+        }
+        if (!text) return { subject: '', categoryId: '', categoryName: '' };
+
+        const first = text.indexOf('{');
+        const last = text.lastIndexOf('}');
+        if (first === -1 || last === -1) return { subject: '', categoryId: '', categoryName: '' };
+
+        const parsed = JSON.parse(text.substring(first, last + 1));
+        return {
+            subject: parsed.subject || '',
+            description: parsed.description || '',
+            categoryId: parsed.categoryId || '',
+            categoryName: parsed.categoryName || ''
+        };
+    } catch (err) {
+        console.error('generateTicketFields error:', err);
+        return { subject: '', description: '', categoryId: '', categoryName: '' };
+    }
+};
+
 export default {
     generateAIResponse,
     generateDynamicFAQs,
     classifyQuestionTheme,
     clusterDemandGaps,
-    generateThemesFromPolicies
+    generateThemesFromPolicies,
+    evaluateTicketNecessity,
+    evaluateIndependentTicket,
+    generateTicketFields
 };

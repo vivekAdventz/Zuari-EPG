@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Sidebar from '../components/Sidebar';
 import ChatArea from '../components/ChatArea';
+import MyTickets from '../components/MyTickets';
 import CalendarModal from '../components/CalendarModal';
 import OnboardingModal from '../components/OnboardingModal';
 import PeriodicFeedbackModal from '../components/PeriodicFeedbackModal';
@@ -19,6 +20,7 @@ const EmployeeDashboard = () => {
         avatar: contextUser?.avatar || null
     };
     const isAlsoAdmin = contextUser?.roles?.includes('admin') || contextUser?.roles?.includes('superAdmin');
+    const isHrOps = contextUser?.roles?.includes('hrOps');
 
     const handleLogout = () => {
         logout();
@@ -38,6 +40,9 @@ const EmployeeDashboard = () => {
     const [selectedPolicyTitle, setSelectedPolicyTitle] = useState(null);
     const [showOnboarding, setShowOnboarding] = useState(false);
     const [showPeriodicFeedback, setShowPeriodicFeedback] = useState(false);
+    const [currentView, setCurrentView] = useState('chat'); // 'chat' | 'tickets'
+    const [initialFeedbackIds, setInitialFeedbackIds] = useState([]);
+    const [initialTicketMap, setInitialTicketMap] = useState([]);
 
     // Get user email safely for storage keys
     const getUserEmail = () => {
@@ -156,13 +161,17 @@ const EmployeeDashboard = () => {
     useEffect(() => {
         if (!activeSessionId) {
             setMessages([]);
+            setInitialFeedbackIds([]);
+            setInitialTicketMap([]);
             return;
         }
 
         const fetchMessages = async () => {
             try {
-                const data = await getMessages(activeSessionId);
+                const { messages: data, feedbackResponseIds, ticketResponseMap } = await getMessages(activeSessionId);
                 setMessages(data);
+                setInitialFeedbackIds(feedbackResponseIds);
+                setInitialTicketMap(ticketResponseMap);
             } catch (error) {
                 console.error("Failed to fetch messages:", error);
             }
@@ -170,8 +179,8 @@ const EmployeeDashboard = () => {
         fetchMessages();
     }, [activeSessionId]);
 
-    const handleSendMessage = async (content) => {
-        if (!activeSessionId) {
+    const handleSendMessage = async (content, isRegenerate = false) => {
+        if (!activeSessionId && !isRegenerate) {
             try {
                 const newSession = await createConversation(content.substring(0, 30) + "...");
                 setSessions([newSession, ...sessions]);
@@ -183,10 +192,10 @@ const EmployeeDashboard = () => {
             }
             return;
         }
-        await sendMsgAPI(activeSessionId, content);
+        await sendMsgAPI(activeSessionId, content, isRegenerate);
     };
 
-    const sendMsgAPI = async (sessionId, content) => {
+    const sendMsgAPI = async (sessionId, content, isRegenerate = false) => {
         const tempId = Date.now().toString();
         const tempUserMsg = {
             _id: tempId,
@@ -194,19 +203,32 @@ const EmployeeDashboard = () => {
             content,
             updatedAt: new Date().toISOString()
         };
-        setMessages(prev => [...prev, tempUserMsg]);
+
+        // Only append user message if NOT regenerating
+        if (!isRegenerate) {
+            setMessages(prev => [...prev, tempUserMsg]);
+        }
+
         setIsLoading(true);
 
         try {
-            const response = await sendMessage(sessionId, content, selectedPolicyTitle);
-            const { userMessage, botMessage } = response;
+            const response = await sendMessage(sessionId, content, selectedPolicyTitle, isRegenerate);
+            const { userMessage, botMessage } = response || {};
 
-            // Replace the temporary user message with the real one from backend (which has real _id)
-            setMessages(prev => prev.map(m => m._id === tempId ? userMessage : m).concat(botMessage));
+            if (!botMessage) throw new Error("No response from AI");
+
+            if (!isRegenerate) {
+                // Replace the temporary user message with the real one from backend (which has real _id)
+                setMessages(prev => prev.map(m => m._id === tempId ? (userMessage || m) : m).concat(botMessage));
+            } else {
+                // Just append the bot message
+                setMessages(prev => [...prev, botMessage]);
+            }
         } catch (error) {
             console.error("Failed to send message:", error);
-            // Optionally remove the temp message on error
-            setMessages(prev => prev.filter(m => m._id !== tempId));
+            if (!isRegenerate) {
+                setMessages(prev => prev.filter(m => m._id !== tempId));
+            }
         } finally {
             setIsLoading(false);
         }
@@ -215,14 +237,15 @@ const EmployeeDashboard = () => {
     const handleNewChat = () => {
         setActiveSessionId(null);
         setMessages([]);
+        setCurrentView('chat');
         if (window.innerWidth < 768) setIsSidebarOpen(false);
     };
 
     const handleSelectSession = (id) => {
         setActiveSessionId(id);
+        setCurrentView('chat');
         if (window.innerWidth < 768) setIsSidebarOpen(false);
     };
-
     const handleDeleteSession = async (id) => {
         setSessions(prev => prev.filter(s => (s._id || s.id) !== id));
         if (activeSessionId === id) {
@@ -262,6 +285,34 @@ const EmployeeDashboard = () => {
                     </button>
                 )}
 
+                {/* HROps / Employee toggle pill — only for HROps users */}
+                {isHrOps && (
+                    <div
+                        className={`fixed z-100 flex items-center gap-1 p-1 rounded-xl
+                               bg-black/30 backdrop-blur-md border border-white/10 shadow-lg
+                               ${isAlsoAdmin ? 'top-14 right-4' : 'top-4 right-4'}`}
+                    >
+                        <button
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-white/90 text-gray-800 shadow-sm cursor-default"
+                        >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+                            </svg>
+                            Employee
+                        </button>
+                        <button
+                            onClick={() => navigate('/hrops/dashboard')}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white/70 hover:text-white hover:bg-white/10 transition-all"
+                            title="Switch to HROps Portal"
+                        >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" />
+                            </svg>
+                            HROps
+                        </button>
+                    </div>
+                )}
+
                 {/* Mobile Overlay */}
                 <div
                     id="mobileOverlay"
@@ -285,22 +336,34 @@ const EmployeeDashboard = () => {
                     selectedPolicyTitle={selectedPolicyTitle}
                     onSelectPolicy={setSelectedPolicyTitle}
                     onOpenPoliciesModal={() => setIsPoliciesModalOpen(true)}
+                    onOpenTickets={() => { setCurrentView('tickets'); if (window.innerWidth < 768) setIsSidebarOpen(false); }}
+                    currentView={currentView}
                 />
 
 
-                <ChatArea
-                    messages={messages}
-                    isLoading={isLoading}
-                    onSendMessage={handleSendMessage}
-                    user={user}
-                    toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
-                    toggleDarkMode={toggleDarkMode}
-                    dynamicFaqs={dynamicFaqs}
-                    isFaqLoading={isFaqLoading}
-                    selectedPolicyTitle={selectedPolicyTitle}
-                    setSelectedPolicyTitle={setSelectedPolicyTitle}
-                    availablePolicies={availablePolicies}
-                />
+                {currentView === 'tickets' ? (
+                    <MyTickets onBack={() => setCurrentView('chat')} />
+                ) : (
+                    <ChatArea
+                        messages={messages}
+                        isLoading={isLoading}
+                        onSendMessage={handleSendMessage}
+                        user={user}
+                        toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+                        toggleDarkMode={toggleDarkMode}
+                        dynamicFaqs={dynamicFaqs}
+                        isFaqLoading={isFaqLoading}
+                        selectedPolicyTitle={selectedPolicyTitle}
+                        setSelectedPolicyTitle={setSelectedPolicyTitle}
+                        availablePolicies={availablePolicies}
+                        initialFeedbackIds={initialFeedbackIds}
+                        initialTicketMap={initialTicketMap}
+                        onOpenTickets={() => {
+                            setCurrentView('tickets');
+                            if (window.innerWidth < 768) setIsSidebarOpen(false);
+                        }}
+                    />
+                )}
 
                 <CalendarModal isOpen={isCalendarOpen} onClose={() => setIsCalendarOpen(false)} />
             </div>

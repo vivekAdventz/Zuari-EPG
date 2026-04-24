@@ -22,7 +22,15 @@ import {
     previewEmployeesCsv,
     bulkCreateEmployees,
     getArchivedPolicies,
-    generatePolicyFaqs
+    generatePolicyFaqs,
+    getHrOpsAssignments,
+    assignHrOps,
+    unassignHrOps,
+    toggleHrOpsUserStatus,
+    updateThemeClosure,
+    getGlobalTicketStats,
+    getGlobalTickets,
+    exportGlobalTickets,
 } from '../controllers/adminController.js';
 
 import { handlePlaygroundChat, handlePlaygroundReset } from '../controllers/playground/playgroundController.js';
@@ -31,8 +39,9 @@ import {
     getImpactLevels, createImpactLevel, updateImpactLevel, deleteImpactLevel,
     getEmployeeCategories, createEmployeeCategory, updateEmployeeCategory, deleteEmployeeCategory,
     getPolicyCategories, createPolicyCategory, updatePolicyCategory, deletePolicyCategory,
+    getQuestionThemes,
 } from '../controllers/configController.js';
-import { getQueryFeedbacks, getUserFeedbacks } from '../controllers/feedbackController.js';
+import { getQueryFeedbacks, getUserFeedbacks, getConversationsWithFeedback } from '../controllers/feedbackController.js';
 import { protect } from '../middleware/authMiddleware.js';
 
 // Admin middleware to ensure user is admin
@@ -170,8 +179,25 @@ router.route('/config/policy-categories/:id')
     .put(protect, admin, updatePolicyCategory)
     .delete(protect, admin, deletePolicyCategory);
 
+// Question Themes
+router.get('/config/question-themes', protect, admin, getQuestionThemes);
+
+// HROps Management
+router.get('/hrops', protect, admin, getHrOpsAssignments);
+router.post('/hrops/assign', protect, admin, assignHrOps);
+router.delete('/hrops/unassign', protect, admin, unassignHrOps);
+router.patch('/hrops/status', protect, admin, toggleHrOpsUserStatus);
+router.patch('/hrops/closure', protect, admin, updateThemeClosure);
+
 // Feedback
 router.get('/feedbacks/queries', protect, admin, getQueryFeedbacks);
 router.get('/feedbacks/users', protect, admin, getUserFeedbacks);
+router.get('/feedbacks/conversations', protect, admin, getConversationsWithFeedback);
+
+// Ticket Monitor (Admin View)
+router.get('/tickets/stats', protect, admin, getGlobalTicketStats);
+router.get('/tickets/export', protect, admin, exportGlobalTickets);
+router.get('/tickets', protect, admin, getGlobalTickets);
 
 export default router;
+// Force reload

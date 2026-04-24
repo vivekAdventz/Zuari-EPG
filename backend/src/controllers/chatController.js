@@ -2,6 +2,8 @@ import chatService from '../services/chatService.js';
 import aiService from '../services/aiService.js';
 import { createLog } from '../utils/logger.js';
 import { classifyAndRecord } from '../services/themeService.js';
+import QueryFeedback from '../models/QueryFeedback.js';
+import Ticket from '../models/Ticket.js';
 
 // @desc    Create a new conversation
 // @route   POST /api/chat/conversation
@@ -60,10 +62,27 @@ const getMessages = async (req, res, next) => {
 
         const messages = await chatService.getMessages(conversation._id);
 
+        // Fetch feedback & ticket state for this conversation's messages
+        const messageIds = messages.map(m => m._id);
+
+        const [feedbacks, tickets] = await Promise.all([
+            QueryFeedback.find({ responseId: { $in: messageIds } }).select('responseId thumbs').lean(),
+            Ticket.find({ responseMessageId: { $in: messageIds }, userId: req.user._id }).select('responseMessageId ticketNumber').lean(),
+        ]);
+
+        // Build lookup data
+        const feedbackResponseIds = feedbacks.map(f => ({
+            id: f.responseId.toString(),
+            thumbs: f.thumbs
+        }));
+        const ticketResponseMap = tickets.map(t => ({ responseId: t.responseMessageId.toString(), ticketNumber: t.ticketNumber }));
+
         res.status(200).json({
             statusCode: 200,
             success: true,
-            data: messages
+            data: messages,
+            feedbackResponseIds,
+            ticketResponseMap,
         });
     } catch (error) {
         next(error);
@@ -75,7 +94,7 @@ const getMessages = async (req, res, next) => {
 // @access  Private
 const sendMessage = async (req, res, next) => {
     try {
-        const { conversationId, content, selectedPolicy } = req.body;
+        const { conversationId, content, selectedPolicy, isRegenerate } = req.body;
 
         if (!conversationId || !content) {
             res.status(400);
@@ -84,12 +103,10 @@ const sendMessage = async (req, res, next) => {
 
         const conversation = await chatService.getConversation(conversationId);
 
-
         if (!conversation) {
             res.status(404);
             throw new Error('Conversation not found');
         }
-
 
         // Check ownership
         if (conversation.userId.toString() !== req.user._id.toString()) {
@@ -97,31 +114,41 @@ const sendMessage = async (req, res, next) => {
             throw new Error('Not authorized to access this conversation');
         }
 
+        let userMessage = null;
 
+        // 1. Save User Message (unless regenerating)
+        if (!isRegenerate) {
+            userMessage = await chatService.saveMessage(conversation._id, req.user._id, 'user', content);
 
+            await createLog(req.user._id, req.user.name, req.user.roles?.join(', ') || 'employee', req.user.entity, `Prompted AI: ${content.substring(0, 50)}${content.length > 50 ? '...' : ''}`);
 
-        // 1. Save User Message
-        const userMessage = await chatService.saveMessage(conversation._id, req.user._id, 'user', content);
-
-        await createLog(req.user._id, req.user.name, req.user.roles?.join(', ') || 'employee', req.user.entity, `Prompted AI: ${content.substring(0, 50)}${content.length > 50 ? '...' : ''}`);
-
-        // 1.5 Fire-and-forget: classify this question into a theme (never blocks the response)
-        try {
-            classifyAndRecord({
-                messageId: userMessage._id,
-                userId: req.user._id,
-                conversationId: conversation._id,
-                question: content,
-                // Pass raw data, let classifyAndRecord handle lookup if needed
-                entityName: req.user.entity?.name || req.user.entity_code || '',
-                levelName: req.user.level?.name || ''
-            }).catch(err => console.error('Theme classification error (fire-and-forget):', err.message));
-        } catch (err) {
-            console.error('Theme classification initiation failed:', err.message);
+            // 1.5 Fire-and-forget: classify this question into a theme
+            try {
+                classifyAndRecord({
+                    messageId: userMessage._id,
+                    userId: req.user._id,
+                    conversationId: conversation._id,
+                    question: content,
+                    entityName: req.user.entity?.name || req.user.entity_code || '',
+                    levelName: req.user.level?.name || ''
+                }).catch(err => console.error('Theme classification error:', err.message));
+            } catch (err) {
+                console.error('Theme classification initiation failed:', err.message);
+            }
         }
 
         // 2. Fetch recent context
-        const recentMessages = await chatService.getRecentMessages(conversation._id);
+        let recentMessages = await chatService.getRecentMessages(conversation._id);
+
+        // Fix: When regenerating, remove the most recent AI response from history.
+        // This ensures the conversation history passed to Gemini ends with the user's
+        // question — otherwise Gemini sees it already answered and returns empty text.
+        if (isRegenerate) {
+            const lastAiIdx = recentMessages.findIndex(m => m.role === 'ai');
+            if (lastAiIdx !== -1) {
+                recentMessages = recentMessages.filter((_, i) => i !== lastAiIdx);
+            }
+        }
 
         // 2.5 Fetch available policies
         const query = {
@@ -160,11 +187,14 @@ const sendMessage = async (req, res, next) => {
         const populatedUser = await req.user.populate(['entity', 'level', 'empCategory']);
         const { content: botContent, policyName } = await aiService.generateAIResponse(recentMessages, populatedUser, selectedPolicy, availablePoliciesList);
 
-        // 5. Save Bot Message
-        const botMessage = await chatService.saveMessage(conversation._id, req.user._id, 'ai', botContent, policyName);
+        // Guard: never save empty content to MongoDB (model requires non-empty string)
+        const finalBotContent = botContent || '<p>Sorry, I had trouble generating a response. Please try again.</p>';
+
+        // 4. Save Bot Message
+        const botMessage = await chatService.saveMessage(conversation._id, req.user._id, 'ai', finalBotContent, policyName);
 
         // 5. Update Conversation lastMessage
-        await chatService.updateLastMessage(conversation._id, botContent);
+        await chatService.updateLastMessage(conversation._id, finalBotContent);
 
         res.status(200).json({
             statusCode: 200,
@@ -211,6 +241,7 @@ const deleteConversation = async (req, res, next) => {
 
 import Policy from '../models/Policy.js';
 import FAQ from '../models/FAQ.js';
+import QuestionTheme from '../models/QuestionTheme.js';
 
 // @desc    Get all available policies for an employee
 // @route   GET /api/chat/policies
@@ -303,6 +334,21 @@ const getDynamicFAQs = async (req, res, next) => {
     }
 };
 
+// @desc    Get predefined question themes (employee-accessible)
+// @route   GET /api/chat/question-themes
+// @access  Private
+const getEmployeeQuestionThemes = async (req, res, next) => {
+    try {
+        const themes = await QuestionTheme.find({ isPredefined: true })
+            .select('_id name description')
+            .sort({ name: 1 })
+            .lean();
+        res.json({ success: true, data: themes });
+    } catch (error) {
+        next(error);
+    }
+};
+
 export {
     createConversation,
     getConversations,
@@ -310,5 +356,6 @@ export {
     sendMessage,
     deleteConversation,
     getAvailablePolicies,
-    getDynamicFAQs
+    getDynamicFAQs,
+    getEmployeeQuestionThemes
 };

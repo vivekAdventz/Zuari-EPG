@@ -15,7 +15,6 @@ export const classifyAndRecord = async ({
 }) => {
     try {
       
-
         // 1. Fetch all current predefined themes with definition and examples
         const allThemes = await QuestionTheme.find({ isPredefined: true })
             .select('name description exampleQueries')
@@ -66,29 +65,4 @@ export const classifyAndRecord = async ({
     }
 };
 
-const PREDEFINED_THEMES = [
-    'Leave Policy',
-    'Payroll',
-    'Benefits',
-    'Performance Management',
-    'Travel Policy',
-    'IT Support',
-    'Onboarding',
-    'Offboarding',
-    'Appraisal',
-    'General Inquiry'
-];
 
-export const seedPredefinedThemes = async () => {
-    try {
-        for (const name of PREDEFINED_THEMES) {
-            await QuestionTheme.findOneAndUpdate(
-                { name },
-                { $setOnInsert: { name, isPredefined: true } },
-                { upsert: true }
-            );
-        }
-    } catch (err) {
-        console.error('Error seeding predefined themes:', err.message);
-    }
-};
